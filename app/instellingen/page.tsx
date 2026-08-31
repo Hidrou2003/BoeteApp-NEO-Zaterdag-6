@@ -750,13 +750,28 @@ function OverigTab({ instellingen, isHoofdbeheerder, onChanged }: {
   const [saving, setSaving] = useState(false);
   const [editingGeminiKey, setEditingGeminiKey] = useState(false);
   const [geminiKeyInput, setGeminiKeyInput] = useState('');
+  const [storedKey, setStoredKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    const local = localStorage.getItem('gemini_api_key');
+    setStoredKey(local ?? instellingen?.gemini_api_key ?? null);
+  }, [instellingen]);
 
   async function saveGeminiKey() {
     setSaving(true);
-    await supabase.from('app_instellingen').upsert({ id: 1, gemini_api_key: geminiKeyInput.trim() || null });
+    const key = geminiKeyInput.trim() || null;
+    localStorage.setItem('gemini_api_key', key ?? '');
+    setStoredKey(key);
+    try {
+      await supabase.from('app_instellingen').upsert({ id: 1, gemini_api_key: key });
+    } catch {
+      // Database-kolom mogelijk nog niet aanwezig; localStorage is de primaire opslag
+    }
     setEditingGeminiKey(false); setSaving(false);
     onChanged();
   }
+
+  const hasKey = !!storedKey;
 
   return (
     <div className="space-y-4">
@@ -768,7 +783,7 @@ function OverigTab({ instellingen, isHoofdbeheerder, onChanged }: {
             <h3 className="text-sm font-semibold text-gray-800">Gemini API-sleutel</h3>
           </div>
           {isHoofdbeheerder && !editingGeminiKey && (
-            <button onClick={() => { setGeminiKeyInput(instellingen?.gemini_api_key ?? ''); setEditingGeminiKey(true); }} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+            <button onClick={() => { setGeminiKeyInput(storedKey ?? ''); setEditingGeminiKey(true); }} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
               <Pencil className="w-3.5 h-3.5" />
             </button>
           )}
@@ -798,7 +813,7 @@ function OverigTab({ instellingen, isHoofdbeheerder, onChanged }: {
             </div>
           </div>
         ) : (
-          <p className="text-sm text-gray-600">{instellingen?.gemini_api_key ? 'API-sleutel is ingesteld' : 'Nog geen API-sleutel ingesteld — screenshot-herkenning werkt niet zonder'}</p>
+          <p className="text-sm text-gray-600">{hasKey ? 'API-sleutel is ingesteld' : 'Nog geen API-sleutel ingesteld — screenshot-herkenning werkt niet zonder'}</p>
         )}
       </div>
     </div>

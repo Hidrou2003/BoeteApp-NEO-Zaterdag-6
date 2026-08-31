@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
 
     if (!geminiKey) {
       return NextResponse.json(
-        { error: 'Geen Gemini API-sleutel geconfigureerd. Voeg je sleutel toe onder Instellingen > Categorieën.' },
+        { error: 'Geen Gemini API-sleutel geconfigureerd. Voeg je sleutel toe onder Instellingen > Overig.' },
         { status: 400 }
       );
     }

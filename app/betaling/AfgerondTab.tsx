@@ -162,18 +162,19 @@ export default function AfgerondTab({ screenshots, spelers, weken, onChanged }: 
     setScanError(null);
     setScanStatus(`Bestand 1/${fileArray.length} uploaden...`);
 
+    const localKey = localStorage.getItem('gemini_api_key');
     const { data: instellingen } = await supabase
       .from('app_instellingen')
       .select('gemini_api_key')
       .eq('id', 1)
       .maybeSingle();
 
-    const geminiKey = instellingen?.gemini_api_key;
+    const geminiKey = localKey || instellingen?.gemini_api_key;
 
     if (!geminiKey) {
       setUploading(false);
       setScanStatus('');
-      setScanError('Geen Gemini API-sleutel ingesteld. Voeg je sleutel toe onder Instellingen > Categorieën.');
+      setScanError('Geen Gemini API-sleutel ingesteld. Voeg je sleutel toe onder Instellingen > Overig.');
       return;
     }
 
