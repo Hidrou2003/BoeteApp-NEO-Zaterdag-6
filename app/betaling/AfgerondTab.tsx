@@ -162,14 +162,14 @@ export default function AfgerondTab({ screenshots, spelers, weken, onChanged }: 
     setScanError(null);
     setScanStatus(`Bestand 1/${fileArray.length} uploaden...`);
 
-    const localKey = localStorage.getItem('gemini_api_key');
-    const { data: instellingen } = await supabase
-      .from('app_instellingen')
-      .select('gemini_api_key')
-      .eq('id', 1)
-      .maybeSingle();
-
-    const geminiKey = localKey || instellingen?.gemini_api_key;
+    let geminiKey: string | null = null;
+    try {
+      const res = await fetch('/api/setup-gemini-key');
+      const data = await res.json();
+      geminiKey = data.geminiKey ?? null;
+    } catch {
+      // network error — geminiKey stays null
+    }
 
     if (!geminiKey) {
       setUploading(false);

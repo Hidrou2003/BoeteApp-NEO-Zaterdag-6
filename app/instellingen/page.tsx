@@ -751,24 +751,35 @@ function OverigTab({ instellingen, isHoofdbeheerder, onChanged }: {
   const [editingGeminiKey, setEditingGeminiKey] = useState(false);
   const [geminiKeyInput, setGeminiKeyInput] = useState('');
   const [storedKey, setStoredKey] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    const local = localStorage.getItem('gemini_api_key');
-    setStoredKey(local ?? instellingen?.gemini_api_key ?? null);
-  }, [instellingen]);
+    let cancelled = false;
+    (async () => {
+      const res = await fetch('/api/setup-gemini-key');
+      const data = await res.json().catch(() => ({}));
+      if (!cancelled) setStoredKey(data.geminiKey ?? null);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   async function saveGeminiKey() {
     setSaving(true);
-    const key = geminiKeyInput.trim() || null;
-    localStorage.setItem('gemini_api_key', key ?? '');
-    setStoredKey(key);
-    try {
-      await supabase.from('app_instellingen').upsert({ id: 1, gemini_api_key: key });
-    } catch {
-      // Database-kolom mogelijk nog niet aanwezig; localStorage is de primaire opslag
+    setSaveError(null);
+    const key = geminiKeyInput.trim();
+    const res = await fetch('/api/setup-gemini-key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ geminiKey: key }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setStoredKey(key || null);
+      setEditingGeminiKey(false);
+    } else {
+      setSaveError(data.error ?? 'Opslaan mislukt');
     }
-    setEditingGeminiKey(false); setSaving(false);
-    onChanged();
+    setSaving(false);
   }
 
   const hasKey = !!storedKey;
@@ -799,6 +810,9 @@ function OverigTab({ instellingen, isHoofdbeheerder, onChanged }: {
               className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <p className="text-xs text-gray-400">Haal een gratis sleutel op via aistudio.google.com/apikey. De sleutel wordt veilig opgeslagen en alleen gebruikt om screenshots uit te lezen.</p>
+            {saveError && (
+              <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{saveError}</p>
+            )}
             <div className="flex gap-2">
               <button
                 onClick={saveGeminiKey}
