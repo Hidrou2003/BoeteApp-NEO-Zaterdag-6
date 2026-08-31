@@ -1,0 +1,1 @@
+ALTER TABLE spelers ALTER COLUMN max_ongeoorloord SET DEFAULT 5;
