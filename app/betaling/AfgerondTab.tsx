@@ -181,116 +181,113 @@ export default function AfgerondTab({ screenshots, spelers, weken, onChanged }: 
       return;
     }
 
-    const allRows: ReviewRow[] = [];
-    let rowIdx = 0;
+    setScanStatus(`${fileArray.length} screenshot${fileArray.length > 1 ? 's' : ''} scannen met AI...`);
 
-    for (let fi = 0; fi < fileArray.length; fi++) {
-      const file = fileArray[fi];
-      setScanStatus(`Bestand ${fi + 1}/${fileArray.length} uploaden...`);
+    const weekData = weekDataMap.get(weekKey);
 
+    const scanPromises = fileArray.map(async (file, fi) => {
       const fileName = `${weekKey}/${Date.now()}-${fi}-${file.name}`;
       const { error: uploadError } = await supabase.storage
         .from('bank-screenshots')
         .upload(fileName, file);
 
-      if (uploadError) {
-        setUploading(false);
-        setScanStatus('');
-        setScanError(`Upload mislukt (${file.name}): ${uploadError.message}`);
-        return;
+      if (uploadError) throw new Error(`Upload mislukt (${file.name}): ${uploadError.message}`);
+
+      const arrayBuffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      const base64Image = btoa(binary);
+
+      const response = await fetch('/api/scan-screenshot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageData: base64Image, mimeType: file.type, geminiKey }),
+      });
+
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}));
+        const diagnostics = [
+          errBody.error ?? `Scan faalde (${response.status})`,
+          errBody.model ? `Model: ${errBody.model}` : '',
+          errBody.details ? `Details: ${errBody.details}` : '',
+        ].filter(Boolean).join(' | ');
+        throw new Error(`Scan mislukt (${file.name}): ${diagnostics}`);
       }
 
-      setScanStatus(`Screenshot ${fi + 1}/${fileArray.length} scannen met AI...`);
+      const { transactions } = await response.json() as {
+        transactions: { naam: string; bedrag: string; bedrag_cents: number; datum: string | null }[];
+      };
 
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        const bytes = new Uint8Array(arrayBuffer);
-        let binary = '';
-        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-        const base64Image = btoa(binary);
-
-        const response = await fetch('/api/scan-screenshot', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageData: base64Image, mimeType: file.type, geminiKey }),
-        });
-
-        if (!response.ok) {
-          const errBody = await response.json().catch(() => ({}));
-          const diagnostics = [
-            errBody.error ?? `Scan faalde (${response.status})`,
-            errBody.model ? `Model: ${errBody.model}` : '',
-            errBody.requestUrl ? `URL: ${errBody.requestUrl}` : '',
-            errBody.details ? `Details: ${errBody.details}` : '',
-          ].filter(Boolean).join(' | ');
-          throw new Error(diagnostics);
-        }
-
-        const { transactions } = await response.json() as {
-          transactions: { naam: string; bedrag: string; bedrag_cents: number; datum: string | null }[];
-        };
-
-        const rawEntries = transactions.map(t => ({
+      await supabase.from('bank_screenshots').insert({
+        week_key: weekKey,
+        storage_path: fileName,
+        ocr_result: transactions.map(t => ({
           naam: t.naam,
           bedrag: t.bedrag,
           bedrag_cents: t.bedrag_cents,
-        }));
+          speler_id: null,
+          matched_status: null,
+        })) as OcrEntry[],
+      });
 
-        const weekData = weekDataMap.get(weekKey);
+      return transactions.map(t => ({ naam: t.naam, bedrag_cents: t.bedrag_cents }));
+    });
 
-        const rows: ReviewRow[] = rawEntries.map((entry) => {
-          const matchedSpeler = matchName(entry.naam);
-          const spelerId = matchedSpeler?.id ?? null;
+    let allRawEntries: { naam: string; bedrag_cents: number }[];
+    try {
+      const results = await Promise.all(scanPromises);
+      allRawEntries = results.flat();
+    } catch (err: any) {
+      setUploading(false);
+      setScanStatus('');
+      setScanError(err.message);
+      return;
+    }
 
-          let status: ReviewRow['status'] = 'niet_betaald';
-          let teWeinigBedrag = 0;
-
-          if (spelerId && weekData) {
-            const spelerWeek = weekData.spelers.find(s => s.speler.id === spelerId);
-            if (spelerWeek) {
-              const teBetalen = spelerWeek.teBetalen;
-              const gelezen = entry.bedrag_cents;
-              if (gelezen <= 0) {
-                status = 'niet_betaald';
-              } else if (gelezen >= teBetalen) {
-                status = 'betaald';
-              } else {
-                status = 'te_weinig_betaald';
-                teWeinigBedrag = teBetalen - gelezen;
-              }
-            }
-          }
-
-          return {
-            id: `${rowIdx++}`,
-            ocrNaam: entry.naam,
-            bedragCents: entry.bedrag_cents,
-            spelerId,
-            status,
-            teWeinigBedrag,
-          };
-        });
-
-        await supabase.from('bank_screenshots').insert({
-          week_key: weekKey,
-          storage_path: fileName,
-          ocr_result: rawEntries.map(e => ({
-            naam: e.naam,
-            bedrag: e.bedrag,
-            bedrag_cents: e.bedrag_cents,
-            speler_id: null,
-            matched_status: null,
-          })) as OcrEntry[],
-        });
-
-        allRows.push(...rows);
-      } catch (err: any) {
-        setUploading(false);
-        setScanStatus('');
-        setScanError(`Scan mislukt (${file.name}): ${err.message}`);
-        return;
+    // Merge duplicates: sum amounts per matched player
+    const mergedMap = new Map<string, { ocrNaam: string; bedragCents: number; spelerId: string | null }>();
+    for (const entry of allRawEntries) {
+      const matchedSpeler = matchName(entry.naam);
+      const spelerId = matchedSpeler?.id ?? null;
+      const mergeKey = spelerId ?? `__${entry.naam.toLowerCase().trim()}`;
+      const existing = mergedMap.get(mergeKey);
+      if (existing) {
+        existing.bedragCents += entry.bedrag_cents;
+      } else {
+        mergedMap.set(mergeKey, { ocrNaam: entry.naam, bedragCents: entry.bedrag_cents, spelerId });
       }
     }
+
+    const allRows: ReviewRow[] = Array.from(mergedMap.values()).map((entry, idx) => {
+      let status: ReviewRow['status'] = 'niet_betaald';
+      let teWeinigBedrag = 0;
+
+      if (entry.spelerId && weekData) {
+        const spelerWeek = weekData.spelers.find(s => s.speler.id === entry.spelerId);
+        if (spelerWeek) {
+          const teBetalen = spelerWeek.teBetalen;
+          const gelezen = entry.bedragCents;
+          if (gelezen <= 0) {
+            status = 'niet_betaald';
+          } else if (gelezen >= teBetalen) {
+            status = 'betaald';
+          } else {
+            status = 'te_weinig_betaald';
+            teWeinigBedrag = teBetalen - gelezen;
+          }
+        }
+      }
+
+      return {
+        id: `${idx}`,
+        ocrNaam: entry.ocrNaam,
+        bedragCents: entry.bedragCents,
+        spelerId: entry.spelerId,
+        status,
+        teWeinigBedrag,
+      };
+    });
 
     setReviewRows(allRows);
     setReviewWeek(weekKey);

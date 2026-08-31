@@ -316,7 +316,7 @@ function BetalingContent() {
   };
 
   const payableWeekKey = getPayableWeekKey();
-  const visibleWeken = weken.filter(w => w.weekKey === payableWeekKey);
+  const visibleWeken = weken;
 
   return (
     <div className="space-y-5">
