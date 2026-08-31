@@ -37,37 +37,48 @@ Negeer regels die geen transactie zijn, zoals "Saldo", "Afschrift", IBAN-nummers
 
 Geef het antwoord als een JSON array met objecten die "naam", "bedrag" en "datum" bevatten. Geef alleen de JSON array, geen andere tekst.`;
 
-    const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
+    const requestBody = {
+      contents: [
+        {
+          parts: [
+            { text: prompt },
             {
-              parts: [
-                { text: prompt },
-                {
-                  inline_data: {
-                    mime_type: mimeType || 'image/png',
-                    data: imageData,
-                  },
-                },
-              ],
+              inline_data: {
+                mime_type: mimeType || 'image/png',
+                data: imageData,
+              },
             },
           ],
-          generation_config: {
-            temperature: 0.1,
-            response_mime_type: 'application/json',
-          },
-        }),
-      }
-    );
+        },
+      ],
+      generation_config: {
+        temperature: 0.1,
+        response_mime_type: 'application/json',
+      },
+    };
 
-    if (!geminiResponse.ok) {
-      const errText = await geminiResponse.text();
+    const models = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+    let geminiResponse: Response | null = null;
+    let lastError = '';
+
+    for (const model of models) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
+      geminiResponse = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (geminiResponse.ok) break;
+
+      lastError = await geminiResponse.text();
+      if (geminiResponse.status === 404) continue;
+      break;
+    }
+
+    if (!geminiResponse || !geminiResponse.ok) {
       return NextResponse.json(
-        { error: `Gemini API fout: ${geminiResponse.status}`, details: errText },
+        { error: `Gemini API fout: ${geminiResponse?.status ?? 0}`, details: lastError },
         { status: 502 }
       );
     }
