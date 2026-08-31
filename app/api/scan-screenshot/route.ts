@@ -57,7 +57,7 @@ Geef het antwoord als een JSON array met objecten die "naam", "bedrag" en "datum
       },
     };
 
-    const models = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+    const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
     let geminiResponse: Response | null = null;
     let lastError = '';
 
