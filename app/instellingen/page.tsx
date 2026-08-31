@@ -102,9 +102,9 @@ function InstellingenContent() {
       ) : tab === 'spelers' ? (
         <SpelersTab spelers={spelers} profiles={profiles} aliases={aliases} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
       ) : tab === 'boetelijst' ? (
-        <BoetelijstTab categorieen={categorieen} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
+        <BoetelijstTab categorieen={categorieen} instellingen={instellingen} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
       ) : tab === 'overig' ? (
-        <OverigTab instellingen={instellingen} categorieen={categorieen} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
+        <OverigTab instellingen={instellingen} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
       ) : null}
     </div>
   );
@@ -441,10 +441,11 @@ function SpelersTab({ spelers, profiles, aliases, isHoofdbeheerder, onChanged }:
 }
 
 // ============================================================
-// BOETELIJST TAB (categorieen + teamboetes)
+// BOETELIJST TAB (categorieen + teamboetes + regels + 0=2 toggle)
 // ============================================================
-function BoetelijstTab({ categorieen, isHoofdbeheerder, onChanged }: {
+function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged }: {
   categorieen: Boetecategorie[];
+  instellingen: AppInstellingen | null;
   isHoofdbeheerder: boolean;
   onChanged: () => void;
 }) {
@@ -460,11 +461,13 @@ function BoetelijstTab({ categorieen, isHoofdbeheerder, onChanged }: {
   const [editDubbel, setEditDubbel] = useState(false);
   const [editOpenBedrag, setEditOpenBedrag] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingRegels, setEditingRegels] = useState(false);
+  const [regelsTekst, setRegelsTekst] = useState('');
 
-  const regelsCats = categorieen.filter(c => c.naam.startsWith(REGELS_PREFIX));
   const actief = categorieen.filter(c => c.actief && !c.naam.startsWith(REGELS_PREFIX));
   const regulier = actief.filter(c => !c.is_teamboete);
   const teamboetes = actief.filter(c => c.is_teamboete);
+  const regelsTekstValue = extractRegelsTekst(categorieen);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -501,6 +504,38 @@ function BoetelijstTab({ categorieen, isHoofdbeheerder, onChanged }: {
       open_bedrag: editOpenBedrag,
     }).eq('id', cat.id);
     setEditingId(null); setSaving(false);
+    onChanged();
+  }
+
+  async function toggleNulIsTwee() {
+    if (!isHoofdbeheerder) return;
+    const newVal = !instellingen?.nul_euro_is_twee_euro;
+    await supabase.from('app_instellingen').upsert({ id: 1, nul_euro_is_twee_euro: newVal });
+    onChanged();
+  }
+
+  async function saveRegelsTekst() {
+    setSaving(true);
+    const existingRegelsCat = categorieen.find(c => c.naam.startsWith(REGELS_PREFIX));
+    const text = regelsTekst.trim();
+    if (existingRegelsCat) {
+      if (text) {
+        await supabase.from('boetecategorieen').update({ naam: REGELS_PREFIX + text }).eq('id', existingRegelsCat.id);
+      } else {
+        await supabase.from('boetecategorieen').delete().eq('id', existingRegelsCat.id);
+      }
+    } else if (text) {
+      const maxVolgorde = categorieen.reduce((max, c) => Math.max(max, c.volgorde), 0);
+      await supabase.from('boetecategorieen').insert({
+        naam: REGELS_PREFIX + text,
+        bedrag: 0,
+        verdubbelbaar: false,
+        open_bedrag: false,
+        actief: false,
+        volgorde: maxVolgorde + 1,
+      });
+    }
+    setEditingRegels(false); setSaving(false);
     onChanged();
   }
 
@@ -637,68 +672,7 @@ function BoetelijstTab({ categorieen, isHoofdbeheerder, onChanged }: {
         {teamboetes.map(cat => renderCatCard(cat, true))}
         {teamboetes.length === 0 && <p className="text-center text-sm text-gray-400 py-4">Nog geen teamboetes toegevoegd</p>}
       </div>
-    </div>
-  );
-}
 
-// ============================================================
-// OVERIG TAB (0=2 toggle, Gemini key, regels)
-// ============================================================
-function OverigTab({ instellingen, categorieen, isHoofdbeheerder, onChanged }: {
-  instellingen: AppInstellingen | null;
-  categorieen: Boetecategorie[];
-  isHoofdbeheerder: boolean;
-  onChanged: () => void;
-}) {
-  const [saving, setSaving] = useState(false);
-  const [editingRegels, setEditingRegels] = useState(false);
-  const [regelsTekst, setRegelsTekst] = useState('');
-  const [editingGeminiKey, setEditingGeminiKey] = useState(false);
-  const [geminiKeyInput, setGeminiKeyInput] = useState('');
-
-  async function toggleNulIsTwee() {
-    if (!isHoofdbeheerder) return;
-    const newVal = !instellingen?.nul_euro_is_twee_euro;
-    await supabase.from('app_instellingen').upsert({ id: 1, nul_euro_is_twee_euro: newVal });
-    onChanged();
-  }
-
-  async function saveRegelsTekst() {
-    setSaving(true);
-    const existingRegelsCat = categorieen.find(c => c.naam.startsWith(REGELS_PREFIX));
-    const text = regelsTekst.trim();
-    if (existingRegelsCat) {
-      if (text) {
-        await supabase.from('boetecategorieen').update({ naam: REGELS_PREFIX + text }).eq('id', existingRegelsCat.id);
-      } else {
-        await supabase.from('boetecategorieen').delete().eq('id', existingRegelsCat.id);
-      }
-    } else if (text) {
-      const maxVolgorde = categorieen.reduce((max, c) => Math.max(max, c.volgorde), 0);
-      await supabase.from('boetecategorieen').insert({
-        naam: REGELS_PREFIX + text,
-        bedrag: 0,
-        verdubbelbaar: false,
-        open_bedrag: false,
-        actief: false,
-        volgorde: maxVolgorde + 1,
-      });
-    }
-    setEditingRegels(false); setSaving(false);
-    onChanged();
-  }
-
-  async function saveGeminiKey() {
-    setSaving(true);
-    await supabase.from('app_instellingen').upsert({ id: 1, gemini_api_key: geminiKeyInput.trim() || null });
-    setEditingGeminiKey(false); setSaving(false);
-    onChanged();
-  }
-
-  const regelsTekstValue = extractRegelsTekst(categorieen);
-
-  return (
-    <div className="space-y-4">
       {/* 0€ = 2€ toggle */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
         <button
@@ -725,6 +699,67 @@ function OverigTab({ instellingen, categorieen, isHoofdbeheerder, onChanged }: {
         </button>
       </div>
 
+      {/* Speciale regels */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <FileText className="w-4 h-4 text-gray-500" />
+            <h3 className="text-sm font-semibold text-gray-800">Speciale regels</h3>
+          </div>
+          {isHoofdbeheerder && !editingRegels && (
+            <button onClick={() => { setRegelsTekst(regelsTekstValue); setEditingRegels(true); }} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        {editingRegels ? (
+          <div className="space-y-3">
+            <textarea
+              value={regelsTekst}
+              onChange={e => setRegelsTekst(e.target.value)}
+              placeholder="bijv. Boetes moeten uiterlijk zondag 23:59 betaald worden"
+              rows={5}
+              autoFocus
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+            />
+            <div className="flex gap-2">
+              <button onClick={saveRegelsTekst} disabled={saving} className="flex-1 bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-60 text-sm flex items-center justify-center gap-2">
+                <Check className="w-4 h-4" /> Opslaan
+              </button>
+              <button onClick={() => setEditingRegels(false)} className="px-5 bg-gray-100 text-gray-500 font-semibold rounded-xl hover:bg-gray-200 transition-colors text-sm">
+                Annuleren
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-600 whitespace-pre-wrap">{regelsTekstValue || 'Nog geen regels ingesteld'}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// OVERIG TAB (Gemini key only)
+// ============================================================
+function OverigTab({ instellingen, isHoofdbeheerder, onChanged }: {
+  instellingen: AppInstellingen | null;
+  isHoofdbeheerder: boolean;
+  onChanged: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [editingGeminiKey, setEditingGeminiKey] = useState(false);
+  const [geminiKeyInput, setGeminiKeyInput] = useState('');
+
+  async function saveGeminiKey() {
+    setSaving(true);
+    await supabase.from('app_instellingen').upsert({ id: 1, gemini_api_key: geminiKeyInput.trim() || null });
+    setEditingGeminiKey(false); setSaving(false);
+    onChanged();
+  }
+
+  return (
+    <div className="space-y-4">
       {/* Gemini API key */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
         <div className="flex items-center justify-between mb-3">
@@ -764,43 +799,6 @@ function OverigTab({ instellingen, categorieen, isHoofdbeheerder, onChanged }: {
           </div>
         ) : (
           <p className="text-sm text-gray-600">{instellingen?.gemini_api_key ? 'API-sleutel is ingesteld' : 'Nog geen API-sleutel ingesteld — screenshot-herkenning werkt niet zonder'}</p>
-        )}
-      </div>
-
-      {/* Speciale regels */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <FileText className="w-4 h-4 text-gray-500" />
-            <h3 className="text-sm font-semibold text-gray-800">Speciale regels</h3>
-          </div>
-          {isHoofdbeheerder && !editingRegels && (
-            <button onClick={() => { setRegelsTekst(regelsTekstValue); setEditingRegels(true); }} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
-              <Pencil className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-        {editingRegels ? (
-          <div className="space-y-3">
-            <textarea
-              value={regelsTekst}
-              onChange={e => setRegelsTekst(e.target.value)}
-              placeholder="bijv. Boetes moeten uiterlijk zondag 23:59 betaald worden"
-              rows={5}
-              autoFocus
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-            />
-            <div className="flex gap-2">
-              <button onClick={saveRegelsTekst} disabled={saving} className="flex-1 bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-60 text-sm flex items-center justify-center gap-2">
-                <Check className="w-4 h-4" /> Opslaan
-              </button>
-              <button onClick={() => setEditingRegels(false)} className="px-5 bg-gray-100 text-gray-500 font-semibold rounded-xl hover:bg-gray-200 transition-colors text-sm">
-                Annuleren
-              </button>
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm text-gray-600 whitespace-pre-wrap">{regelsTekstValue || 'Nog geen regels ingesteld'}</p>
         )}
       </div>
     </div>
