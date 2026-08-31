@@ -289,6 +289,22 @@ export default function AfgerondTab({ screenshots, spelers, weken, onChanged }: 
       };
     });
 
+    // Add "niet_betaald" rows for players who had boetes that week but weren't on the screenshot
+    if (weekData) {
+      const matchedSpelerIds = new Set(allRows.map(r => r.spelerId).filter(Boolean) as string[]);
+      for (const spelerWeek of weekData.spelers) {
+        if (matchedSpelerIds.has(spelerWeek.speler.id)) continue;
+        allRows.push({
+          id: `${allRows.length}`,
+          ocrNaam: spelerWeek.speler.naam,
+          bedragCents: 0,
+          spelerId: spelerWeek.speler.id,
+          status: 'niet_betaald',
+          teWeinigBedrag: 0,
+        });
+      }
+    }
+
     setReviewRows(allRows);
     setReviewWeek(weekKey);
     setScanStatus('Betaalstatus automatisch invullen...');
@@ -520,9 +536,15 @@ export default function AfgerondTab({ screenshots, spelers, weken, onChanged }: 
                   const weekData = weekDataMap.get(reviewWeek);
                   const spelerWeek = row.spelerId ? weekData?.spelers.find(s => s.speler.id === row.spelerId) : null;
                   const teBetalen = spelerWeek?.teBetalen ?? 0;
+                  const isAutoNietBetaald = row.bedragCents === 0 && row.status === 'niet_betaald';
                   return (
-                    <tr key={row.id} className="border-b border-gray-50 last:border-0">
-                      <td className="px-4 py-3 text-gray-700 font-medium">{row.ocrNaam}</td>
+                    <tr key={row.id} className={`border-b border-gray-50 last:border-0 ${isAutoNietBetaald ? 'bg-red-50/50' : ''}`}>
+                      <td className="px-4 py-3 text-gray-700 font-medium">
+                        {row.ocrNaam}
+                        {isAutoNietBetaald && (
+                          <span className="text-xs text-red-500 ml-1.5">(niet op screenshot)</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <select
                           value={row.spelerId ?? ''}
