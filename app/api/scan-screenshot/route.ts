@@ -3,6 +3,8 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export const runtime = 'nodejs';
 
+const MODEL_NAME = 'gemini-3.6-flash';
+
 interface Transaction {
   naam: string;
   bedrag: number;
@@ -21,9 +23,6 @@ export async function POST(req: NextRequest) {
     }
 
     const apiKey = typeof geminiKey === 'string' ? geminiKey.trim() : '';
-    const modelName = 'gemini-1.5-flash';
-    const requestUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=[verborgen]`;
-
     if (!apiKey) {
       return NextResponse.json(
         { error: 'Geen Gemini API-sleutel geconfigureerd. Voeg je sleutel toe onder Instellingen > Overig.' },
@@ -46,7 +45,7 @@ Geef het antwoord als een JSON array met objecten die "naam", "bedrag" en "datum
 
     try {
       const model = genAI.getGenerativeModel({
-        model: modelName,
+        model: MODEL_NAME,
         generationConfig: {
           temperature: 0.1,
           responseMimeType: 'application/json',
@@ -67,37 +66,37 @@ Geef het antwoord als een JSON array met objecten die "naam", "bedrag" en "datum
 
       if (!textContent) {
         return NextResponse.json(
-          { error: 'Geen tekst ontvangen van Gemini', model: modelName, requestUrl },
+          { error: 'Geen tekst ontvangen van Gemini', model: MODEL_NAME },
           { status: 502 }
         );
       }
 
-        let transactions: Transaction[];
-        try {
-          const cleaned = textContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-          transactions = JSON.parse(cleaned);
-        } catch {
-          return NextResponse.json(
-            { error: 'Kon JSON niet parsen', raw: textContent },
-            { status: 502 }
-          );
-        }
+      let transactions: Transaction[];
+      try {
+        const cleaned = textContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+        transactions = JSON.parse(cleaned);
+      } catch {
+        return NextResponse.json(
+          { error: 'Kon JSON niet parsen', raw: textContent },
+          { status: 502 }
+        );
+      }
 
-        if (!Array.isArray(transactions)) {
-          return NextResponse.json(
-            { error: 'Onverwacht antwoordformaat van Gemini' },
-            { status: 502 }
-          );
-        }
+      if (!Array.isArray(transactions)) {
+        return NextResponse.json(
+          { error: 'Onverwacht antwoordformaat van Gemini' },
+          { status: 502 }
+        );
+      }
 
-        const entries = transactions
-          .filter((t) => t.naam && typeof t.bedrag === 'number')
-          .map((t) => ({
-            naam: String(t.naam).trim(),
-            bedrag: `€${Number(t.bedrag).toFixed(2).replace('.', ',')}`,
-            bedrag_cents: Math.round(Number(t.bedrag) * 100),
-            datum: t.datum ?? null,
-          }));
+      const entries = transactions
+        .filter((t) => t.naam && typeof t.bedrag === 'number')
+        .map((t) => ({
+          naam: String(t.naam).trim(),
+          bedrag: `€${Number(t.bedrag).toFixed(2).replace('.', ',')}`,
+          bedrag_cents: Math.round(Number(t.bedrag) * 100),
+          datum: t.datum ?? null,
+        }));
 
       return NextResponse.json({ transactions: entries });
     } catch (err: unknown) {
@@ -105,8 +104,7 @@ Geef het antwoord als een JSON array met objecten die "naam", "bedrag" en "datum
       return NextResponse.json(
         {
           error: 'Gemini API-aanroep mislukt',
-          model: modelName,
-          requestUrl,
+          model: MODEL_NAME,
           details,
         },
         { status: 502 }
