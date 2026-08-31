@@ -20,7 +20,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const apiKey = (geminiKey as string)?.trim();
+    const apiKey = typeof geminiKey === 'string' ? geminiKey.trim() : '';
+    const modelName = 'gemini-1.5-flash';
+    const requestUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=[verborgen]`;
+
     if (!apiKey) {
       return NextResponse.json(
         { error: 'Geen Gemini API-sleutel geconfigureerd. Voeg je sleutel toe onder Instellingen > Overig.' },
@@ -41,35 +44,33 @@ Geef het antwoord als een JSON array met objecten die "naam", "bedrag" en "datum
 
     const genAI = new GoogleGenerativeAI(apiKey);
 
-    const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
-    let lastError = '';
+    try {
+      const model = genAI.getGenerativeModel({
+        model: modelName,
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: 'application/json',
+        },
+      });
 
-    for (const modelName of models) {
-      try {
-        const model = genAI.getGenerativeModel({
-          model: modelName,
-          generationConfig: {
-            temperature: 0.1,
-            responseMimeType: 'application/json',
+      const result = await model.generateContent([
+        prompt,
+        {
+          inlineData: {
+            mimeType: mimeType || 'image/png',
+            data: imageData,
           },
-        });
+        },
+      ]);
 
-        const result = await model.generateContent([
-          prompt,
-          {
-            inlineData: {
-              mimeType: mimeType || 'image/png',
-              data: imageData,
-            },
-          },
-        ]);
+      const textContent = result.response.text();
 
-        const textContent = result.response.text();
-
-        if (!textContent) {
-          lastError = 'Geen tekst ontvangen van Gemini';
-          continue;
-        }
+      if (!textContent) {
+        return NextResponse.json(
+          { error: 'Geen tekst ontvangen van Gemini', model: modelName, requestUrl },
+          { status: 502 }
+        );
+      }
 
         let transactions: Transaction[];
         try {
@@ -98,19 +99,19 @@ Geef het antwoord als een JSON array met objecten die "naam", "bedrag" en "datum
             datum: t.datum ?? null,
           }));
 
-        return NextResponse.json({ transactions: entries });
-      } catch (err: any) {
-        lastError = err?.message ?? String(err);
-        const status = err?.status ?? err?.code;
-        if (status === 404 || String(lastError).includes('404')) continue;
-        break;
-      }
+      return NextResponse.json({ transactions: entries });
+    } catch (err: unknown) {
+      const details = err instanceof Error ? err.message : String(err);
+      return NextResponse.json(
+        {
+          error: 'Gemini API-aanroep mislukt',
+          model: modelName,
+          requestUrl,
+          details,
+        },
+        { status: 502 }
+      );
     }
-
-    return NextResponse.json(
-      { error: `Gemini API fout: alle modellen faalden`, details: lastError },
-      { status: 502 }
-    );
   } catch (err) {
     return NextResponse.json(
       { error: String(err) },

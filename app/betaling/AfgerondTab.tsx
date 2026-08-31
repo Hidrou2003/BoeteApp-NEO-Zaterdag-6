@@ -217,7 +217,13 @@ export default function AfgerondTab({ screenshots, spelers, weken, onChanged }: 
 
         if (!response.ok) {
           const errBody = await response.json().catch(() => ({}));
-          throw new Error(errBody.error ?? `Scan faalde (${response.status})`);
+          const diagnostics = [
+            errBody.error ?? `Scan faalde (${response.status})`,
+            errBody.model ? `Model: ${errBody.model}` : '',
+            errBody.requestUrl ? `URL: ${errBody.requestUrl}` : '',
+            errBody.details ? `Details: ${errBody.details}` : '',
+          ].filter(Boolean).join(' | ');
+          throw new Error(diagnostics);
         }
 
         const { transactions } = await response.json() as {
