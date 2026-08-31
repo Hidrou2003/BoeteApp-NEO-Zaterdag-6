@@ -169,7 +169,7 @@ export default function AfgerondTab({ screenshots, spelers, weken, onChanged }: 
         .select('naam')
         .like('naam', '__GEMINI__%')
         .maybeSingle();
-      geminiKey = cats ? cats.naam.slice('__GEMINI__'.length) : null;
+      geminiKey = cats ? cats.naam.slice('__GEMINI__'.length).trim() : null;
     } catch {
       // network error — geminiKey stays null
     }

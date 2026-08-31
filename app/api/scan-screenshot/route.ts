@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export const runtime = 'nodejs';
 
@@ -19,7 +20,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!geminiKey) {
+    const apiKey = (geminiKey as string)?.trim();
+    if (!apiKey) {
       return NextResponse.json(
         { error: 'Geen Gemini API-sleutel geconfigureerd. Voeg je sleutel toe onder Instellingen > Overig.' },
         { status: 400 }
@@ -37,90 +39,78 @@ Negeer regels die geen transactie zijn, zoals "Saldo", "Afschrift", IBAN-nummers
 
 Geef het antwoord als een JSON array met objecten die "naam", "bedrag" en "datum" bevatten. Geef alleen de JSON array, geen andere tekst.`;
 
-    const requestBody = {
-      contents: [
-        {
-          parts: [
-            { text: prompt },
-            {
-              inline_data: {
-                mime_type: mimeType || 'image/png',
-                data: imageData,
-              },
-            },
-          ],
-        },
-      ],
-      generation_config: {
-        temperature: 0.1,
-        response_mime_type: 'application/json',
-      },
-    };
+    const genAI = new GoogleGenerativeAI(apiKey);
 
     const models = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
-    let geminiResponse: Response | null = null;
     let lastError = '';
 
-    for (const model of models) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
-      geminiResponse = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
-      });
+    for (const modelName of models) {
+      try {
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          generationConfig: {
+            temperature: 0.1,
+            responseMimeType: 'application/json',
+          },
+        });
 
-      if (geminiResponse.ok) break;
+        const result = await model.generateContent([
+          prompt,
+          {
+            inlineData: {
+              mimeType: mimeType || 'image/png',
+              data: imageData,
+            },
+          },
+        ]);
 
-      lastError = await geminiResponse.text();
-      if (geminiResponse.status === 404) continue;
-      break;
+        const textContent = result.response.text();
+
+        if (!textContent) {
+          lastError = 'Geen tekst ontvangen van Gemini';
+          continue;
+        }
+
+        let transactions: Transaction[];
+        try {
+          const cleaned = textContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+          transactions = JSON.parse(cleaned);
+        } catch {
+          return NextResponse.json(
+            { error: 'Kon JSON niet parsen', raw: textContent },
+            { status: 502 }
+          );
+        }
+
+        if (!Array.isArray(transactions)) {
+          return NextResponse.json(
+            { error: 'Onverwacht antwoordformaat van Gemini' },
+            { status: 502 }
+          );
+        }
+
+        const entries = transactions
+          .filter((t) => t.naam && typeof t.bedrag === 'number')
+          .map((t) => ({
+            naam: String(t.naam).trim(),
+            bedrag: `€${Number(t.bedrag).toFixed(2).replace('.', ',')}`,
+            bedrag_cents: Math.round(Number(t.bedrag) * 100),
+            datum: t.datum ?? null,
+          }));
+
+        return NextResponse.json({ transactions: entries });
+      } catch (err: any) {
+        lastError = err?.message ?? String(err);
+        const status = err?.status ?? err?.code;
+        if (status === 404 || String(lastError).includes('404')) continue;
+        break;
+      }
     }
 
-    if (!geminiResponse || !geminiResponse.ok) {
-      return NextResponse.json(
-        { error: `Gemini API fout: ${geminiResponse?.status ?? 0}`, details: lastError },
-        { status: 502 }
-      );
-    }
-
-    const geminiData = await geminiResponse.json();
-    const textContent = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!textContent) {
-      return NextResponse.json(
-        { error: 'Geen tekst ontvangen van Gemini' },
-        { status: 502 }
-      );
-    }
-
-    let transactions: Transaction[];
-    try {
-      const cleaned = textContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      transactions = JSON.parse(cleaned);
-    } catch {
-      return NextResponse.json(
-        { error: 'Kon JSON niet parsen', raw: textContent },
-        { status: 502 }
-      );
-    }
-
-    if (!Array.isArray(transactions)) {
-      return NextResponse.json(
-        { error: 'Onverwacht antwoordformaat van Gemini' },
-        { status: 502 }
-      );
-    }
-
-    const entries = transactions
-      .filter((t) => t.naam && typeof t.bedrag === 'number')
-      .map((t) => ({
-        naam: String(t.naam).trim(),
-        bedrag: `€${Number(t.bedrag).toFixed(2).replace('.', ',')}`,
-        bedrag_cents: Math.round(Number(t.bedrag) * 100),
-        datum: t.datum ?? null,
-      }));
-
-    return NextResponse.json({ transactions: entries });
+    return NextResponse.json(
+      { error: `Gemini API fout: alle modellen faalden`, details: lastError },
+      { status: 502 }
+    );
   } catch (err) {
     return NextResponse.json(
       { error: String(err) },
