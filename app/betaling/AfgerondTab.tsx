@@ -162,6 +162,21 @@ export default function AfgerondTab({ screenshots, spelers, weken, onChanged }: 
     setScanError(null);
     setScanStatus(`Bestand 1/${fileArray.length} uploaden...`);
 
+    const { data: instellingen } = await supabase
+      .from('app_instellingen')
+      .select('gemini_api_key')
+      .eq('id', 1)
+      .maybeSingle();
+
+    const geminiKey = instellingen?.gemini_api_key;
+
+    if (!geminiKey) {
+      setUploading(false);
+      setScanStatus('');
+      setScanError('Geen Gemini API-sleutel ingesteld. Voeg je sleutel toe onder Instellingen > Categorieën.');
+      return;
+    }
+
     const allRows: ReviewRow[] = [];
     let rowIdx = 0;
 
@@ -193,7 +208,7 @@ export default function AfgerondTab({ screenshots, spelers, weken, onChanged }: 
         const response = await fetch('/api/scan-screenshot', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageData: base64Image, mimeType: file.type }),
+          body: JSON.stringify({ imageData: base64Image, mimeType: file.type, geminiKey }),
         });
 
         if (!response.ok) {

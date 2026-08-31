@@ -10,7 +10,7 @@ interface Transaction {
 
 export async function POST(req: NextRequest) {
   try {
-    const { imageData, mimeType } = await req.json();
+    const { imageData, mimeType, geminiKey } = await req.json();
 
     if (!imageData) {
       return NextResponse.json(
@@ -19,11 +19,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const geminiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY;
-
-    if (!geminiKey || geminiKey === 'jouw_sleutel_hier') {
+    if (!geminiKey) {
       return NextResponse.json(
-        { error: 'Geen Gemini API-sleutel geconfigureerd. Voeg GEMINI_API_KEY toe aan het .env bestand.' },
+        { error: 'Geen Gemini API-sleutel geconfigureerd. Voeg je sleutel toe onder Instellingen > Categorieën.' },
         { status: 400 }
       );
     }
