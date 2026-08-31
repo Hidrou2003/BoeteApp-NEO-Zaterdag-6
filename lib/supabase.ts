@@ -139,10 +139,16 @@ export interface AppInstellingen {
 }
 
 export const REGELS_PREFIX = '__REGELS__';
+export const GEMINI_PREFIX = '__GEMINI__';
 
 export function extractRegelsTekst(categorieen: Boetecategorie[]): string {
   const cat = categorieen.find(c => c.naam.startsWith(REGELS_PREFIX));
   return cat ? cat.naam.slice(REGELS_PREFIX.length) : '';
+}
+
+export function extractGeminiKey(categorieen: Boetecategorie[]): string {
+  const cat = categorieen.find(c => c.naam.startsWith(GEMINI_PREFIX));
+  return cat ? cat.naam.slice(GEMINI_PREFIX.length) : '';
 }
 
 export interface BetaalLink {

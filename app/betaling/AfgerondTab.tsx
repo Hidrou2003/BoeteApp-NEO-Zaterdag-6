@@ -164,9 +164,12 @@ export default function AfgerondTab({ screenshots, spelers, weken, onChanged }: 
 
     let geminiKey: string | null = null;
     try {
-      const res = await fetch('/api/setup-gemini-key');
-      const data = await res.json();
-      geminiKey = data.geminiKey ?? null;
+      const { data: cats } = await supabase
+        .from('boetecategorieen')
+        .select('naam')
+        .like('naam', '__GEMINI__%')
+        .maybeSingle();
+      geminiKey = cats ? cats.naam.slice('__GEMINI__'.length) : null;
     } catch {
       // network error — geminiKey stays null
     }

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
-import { supabase, Speler, Boetecategorie, Profile, NaamAlias, AppInstellingen, formatBedrag, REGELS_PREFIX, extractRegelsTekst } from '@/lib/supabase';
+import { supabase, Speler, Boetecategorie, Profile, NaamAlias, AppInstellingen, formatBedrag, REGELS_PREFIX, extractRegelsTekst, GEMINI_PREFIX, extractGeminiKey } from '@/lib/supabase';
 import { Settings, Plus, Trash2, Pencil, X, Check, Users, Tag, Zap, Lock, Euro, Shield, UserCheck, AlertCircle, Mail, UserCircle, TrendingUp, FileText, Key, MoreHorizontal } from 'lucide-react';
 
 export default function InstellingenPage() {
@@ -104,7 +104,7 @@ function InstellingenContent() {
       ) : tab === 'boetelijst' ? (
         <BoetelijstTab categorieen={categorieen} instellingen={instellingen} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
       ) : tab === 'overig' ? (
-        <OverigTab instellingen={instellingen} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
+        <OverigTab categorieen={categorieen} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
       ) : null}
     </div>
   );
@@ -742,47 +742,60 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
 // ============================================================
 // OVERIG TAB (Gemini key only)
 // ============================================================
-function OverigTab({ instellingen, isHoofdbeheerder, onChanged }: {
-  instellingen: AppInstellingen | null;
+function OverigTab({ categorieen, isHoofdbeheerder, onChanged }: {
+  categorieen: Boetecategorie[];
   isHoofdbeheerder: boolean;
   onChanged: () => void;
 }) {
   const [saving, setSaving] = useState(false);
   const [editingGeminiKey, setEditingGeminiKey] = useState(false);
   const [geminiKeyInput, setGeminiKeyInput] = useState('');
-  const [storedKey, setStoredKey] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const res = await fetch('/api/setup-gemini-key');
-      const data = await res.json().catch(() => ({}));
-      if (!cancelled) setStoredKey(data.geminiKey ?? null);
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  const storedKey = extractGeminiKey(categorieen);
+  const hasKey = !!storedKey;
 
   async function saveGeminiKey() {
     setSaving(true);
     setSaveError(null);
     const key = geminiKeyInput.trim();
-    const res = await fetch('/api/setup-gemini-key', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ geminiKey: key }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (res.ok) {
-      setStoredKey(key || null);
-      setEditingGeminiKey(false);
-    } else {
-      setSaveError(data.error ?? 'Opslaan mislukt');
-    }
-    setSaving(false);
-  }
+    const fullName = GEMINI_PREFIX + key;
 
-  const hasKey = !!storedKey;
+    const existing = categorieen.find(c => c.naam.startsWith(GEMINI_PREFIX));
+
+    if (existing) {
+      const { error } = await supabase
+        .from('boetecategorieen')
+        .update({ naam: fullName })
+        .eq('id', existing.id);
+      if (error) {
+        setSaveError(error.message ?? 'Opslaan mislukt');
+        setSaving(false);
+        return;
+      }
+    } else {
+      const maxVolgorde = categorieen.reduce((max, c) => Math.max(max, c.volgorde), 0);
+      const { error } = await supabase
+        .from('boetecategorieen')
+        .insert({
+          naam: fullName,
+          bedrag: 0,
+          verdubbelbaar: false,
+          open_bedrag: false,
+          actief: false,
+          volgorde: maxVolgorde + 1,
+        });
+      if (error) {
+        setSaveError(error.message ?? 'Opslaan mislukt');
+        setSaving(false);
+        return;
+      }
+    }
+
+    setEditingGeminiKey(false);
+    setSaving(false);
+    onChanged();
+  }
 
   return (
     <div className="space-y-4">
