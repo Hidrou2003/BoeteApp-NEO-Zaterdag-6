@@ -5,8 +5,7 @@ import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { supabase, Speler, Boetecategorie, Profile, NaamAlias, AppInstellingen, formatBedrag, REGELS_PREFIX, extractRegelsTekst } from '@/lib/supabase';
-import { Settings, Plus, Trash2, Pencil, X, Check, Users, Tag, Zap, Link2, Lock, Euro, Shield, UserCheck, AlertCircle, Mail, UserCircle, TrendingUp, FileText, Key } from 'lucide-react';
-import Link from 'next/link';
+import { Settings, Plus, Trash2, Pencil, X, Check, Users, Tag, Zap, Lock, Euro, Shield, UserCheck, AlertCircle, Mail, UserCircle, TrendingUp, FileText, Key, MoreHorizontal } from 'lucide-react';
 
 export default function InstellingenPage() {
   return (
@@ -20,7 +19,7 @@ export default function InstellingenPage() {
 
 function InstellingenContent() {
   const { profile } = useAuth();
-  const [tab, setTab] = useState<'spelers' | 'categorieen' | 'teamboetes'>('spelers');
+  const [tab, setTab] = useState<'spelers' | 'boetelijst' | 'overig'>('spelers');
   const [spelers, setSpelers] = useState<Speler[]>([]);
   const [categorieen, setCategorieen] = useState<Boetecategorie[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -54,7 +53,7 @@ function InstellingenContent() {
       <div>
         <h1 className="text-xl font-bold text-gray-900">Instellingen</h1>
         <p className="text-sm text-gray-500">
-          {isHoofdbeheerder ? 'Spelers en boetecategorieën beheren' : 'Spelers en boetecategorieën bekijken'}
+          {isHoofdbeheerder ? 'Spelers, boetelijst en overige instellingen beheren' : 'Spelers, boetelijst en overige instellingen bekijken'}
         </p>
       </div>
 
@@ -77,22 +76,22 @@ function InstellingenContent() {
           Spelers
         </button>
         <button
-          onClick={() => setTab('categorieen')}
+          onClick={() => setTab('boetelijst')}
           className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-colors ${
-            tab === 'categorieen' ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+            tab === 'boetelijst' ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
           }`}
         >
           <Tag className="w-4 h-4" />
-          Categorieën
+          Boetelijst
         </button>
         <button
-          onClick={() => setTab('teamboetes')}
+          onClick={() => setTab('overig')}
           className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-colors ${
-            tab === 'teamboetes' ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
+            tab === 'overig' ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
           }`}
         >
-          <Shield className="w-4 h-4" />
-          Teamboetes
+          <MoreHorizontal className="w-4 h-4" />
+          Overig
         </button>
       </div>
 
@@ -102,10 +101,10 @@ function InstellingenContent() {
         </div>
       ) : tab === 'spelers' ? (
         <SpelersTab spelers={spelers} profiles={profiles} aliases={aliases} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
-      ) : tab === 'categorieen' ? (
-        <CategorieenTab categorieen={categorieen} isHoofdbeheerder={isHoofdbeheerder} instellingen={instellingen} onChanged={load} />
-      ) : tab === 'teamboetes' ? (
-        <TeamBoetesTab categorieen={categorieen} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
+      ) : tab === 'boetelijst' ? (
+        <BoetelijstTab categorieen={categorieen} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
+      ) : tab === 'overig' ? (
+        <OverigTab instellingen={instellingen} categorieen={categorieen} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
       ) : null}
     </div>
   );
@@ -442,35 +441,30 @@ function SpelersTab({ spelers, profiles, aliases, isHoofdbeheerder, onChanged }:
 }
 
 // ============================================================
-// CATEGORIEEN TAB
+// BOETELIJST TAB (categorieen + teamboetes)
 // ============================================================
-function CategorieenTab({ categorieen, isHoofdbeheerder, instellingen, onChanged }: {
+function BoetelijstTab({ categorieen, isHoofdbeheerder, onChanged }: {
   categorieen: Boetecategorie[];
   isHoofdbeheerder: boolean;
-  instellingen: AppInstellingen | null;
   onChanged: () => void;
 }) {
-  async function toggleNulIsTwee() {
-    if (!isHoofdbeheerder) return;
-    const newVal = !instellingen?.nul_euro_is_twee_euro;
-    await supabase.from('app_instellingen').upsert({ id: 1, nul_euro_is_twee_euro: newVal });
-    onChanged();
-  }
   const [adding, setAdding] = useState(false);
   const [newNaam, setNewNaam] = useState('');
   const [newBedrag, setNewBedrag] = useState('');
   const [newDubbel, setNewDubbel] = useState(false);
   const [newOpenBedrag, setNewOpenBedrag] = useState(false);
+  const [newIsTeam, setNewIsTeam] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editNaam, setEditNaam] = useState('');
   const [editBedrag, setEditBedrag] = useState('');
   const [editDubbel, setEditDubbel] = useState(false);
   const [editOpenBedrag, setEditOpenBedrag] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [editingRegels, setEditingRegels] = useState(false);
-  const [regelsTekst, setRegelsTekst] = useState('');
-  const [editingGeminiKey, setEditingGeminiKey] = useState(false);
-  const [geminiKeyInput, setGeminiKeyInput] = useState('');
+
+  const regelsCats = categorieen.filter(c => c.naam.startsWith(REGELS_PREFIX));
+  const actief = categorieen.filter(c => c.actief && !c.naam.startsWith(REGELS_PREFIX));
+  const regulier = actief.filter(c => !c.is_teamboete);
+  const teamboetes = actief.filter(c => c.is_teamboete);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -483,9 +477,10 @@ function CategorieenTab({ categorieen, isHoofdbeheerder, instellingen, onChanged
       bedrag,
       verdubbelbaar: newDubbel,
       open_bedrag: newOpenBedrag,
+      is_teamboete: newIsTeam,
       volgorde: maxVolgorde + 1,
     });
-    setNewNaam(''); setNewBedrag(''); setNewDubbel(false); setNewOpenBedrag(false);
+    setNewNaam(''); setNewBedrag(''); setNewDubbel(false); setNewOpenBedrag(false); setNewIsTeam(false);
     setAdding(false); setSaving(false);
     onChanged();
   }
@@ -506,6 +501,165 @@ function CategorieenTab({ categorieen, isHoofdbeheerder, instellingen, onChanged
       open_bedrag: editOpenBedrag,
     }).eq('id', cat.id);
     setEditingId(null); setSaving(false);
+    onChanged();
+  }
+
+  function startEdit(cat: Boetecategorie) {
+    setEditingId(cat.id);
+    setEditNaam(cat.naam);
+    setEditBedrag((cat.bedrag / 100).toFixed(2).replace('.', ','));
+    setEditDubbel(cat.verdubbelbaar);
+    setEditOpenBedrag(cat.open_bedrag);
+  }
+
+  function renderCatCard(cat: Boetecategorie, isTeam: boolean) {
+    const iconBg = isTeam ? 'bg-purple-100' : 'bg-blue-100';
+    const iconColor = isTeam ? 'text-purple-600' : 'text-blue-600';
+    const Icon = isTeam ? Shield : Tag;
+
+    return (
+      <div key={cat.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        {editingId === cat.id && isHoofdbeheerder ? (
+          <div className="p-4 space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Naam (volledige omschrijving)</label>
+              <input type="text" value={editNaam} onChange={e => setEditNaam(e.target.value)} autoFocus className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Bedrag (EUR)</label>
+              <input type="text" inputMode="decimal" value={editBedrag} onChange={e => setEditBedrag(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <DubbelToggle value={editDubbel} onChange={setEditDubbel} />
+            <OpenBedragToggle value={editOpenBedrag} onChange={setEditOpenBedrag} />
+            <div className="flex gap-2">
+              <button onClick={() => handleEditSave(cat)} disabled={saving} className="flex-1 bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-60 text-sm flex items-center justify-center gap-2">
+                <Check className="w-4 h-4" /> Opslaan
+              </button>
+              <button onClick={() => setEditingId(null)} className="px-5 bg-gray-100 text-gray-500 font-semibold rounded-xl hover:bg-gray-200 transition-colors text-sm">
+                Annuleren
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 px-4 py-3.5">
+            <div className={`w-9 h-9 ${iconBg} rounded-xl flex items-center justify-center flex-shrink-0`}>
+              <Icon className={`w-4 h-4 ${iconColor}`} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold text-gray-800">{cat.naam}</p>
+                {cat.verdubbelbaar && <span className="text-xs bg-orange-100 text-orange-600 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 flex-shrink-0"><Zap className="w-2.5 h-2.5" />x2</span>}
+                {cat.open_bedrag && <span className="text-xs bg-green-100 text-green-600 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 flex-shrink-0"><Euro className="w-2.5 h-2.5" />Open</span>}
+              </div>
+              <p className="text-xs text-gray-400">{cat.open_bedrag ? 'Bedrag wordt ingevuld bij activiteit' : `${formatBedrag(cat.bedrag)} per stuk`}</p>
+            </div>
+            {isHoofdbeheerder && (
+              <>
+                <button onClick={() => startEdit(cat)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={() => handleDelete(cat.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Add button / form */}
+      {isHoofdbeheerder && (
+        adding ? (
+          <form onSubmit={handleAdd} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Naam (volledige omschrijving)</label>
+              <input type="text" value={newNaam} onChange={e => setNewNaam(e.target.value)} placeholder="bijv. Te laat komen" autoFocus className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Bedrag (EUR)</label>
+              <input type="text" inputMode="decimal" value={newBedrag} onChange={e => setNewBedrag(e.target.value)} placeholder="2,00" className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+            </div>
+            <DubbelToggle value={newDubbel} onChange={setNewDubbel} />
+            <OpenBedragToggle value={newOpenBedrag} onChange={setNewOpenBedrag} />
+            <button
+              type="button"
+              onClick={() => setNewIsTeam(!newIsTeam)}
+              className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all ${newIsTeam ? 'border-purple-400 bg-purple-50' : 'border-gray-200'}`}
+            >
+              <div className="flex items-center gap-2">
+                <Shield className={`w-4 h-4 ${newIsTeam ? 'text-purple-600' : 'text-gray-400'}`} />
+                <div className="text-left">
+                  <span className={`text-sm font-medium block ${newIsTeam ? 'text-purple-900' : 'text-gray-600'}`}>Teamboete</span>
+                  <span className="text-xs text-gray-400">Geldt voor alle spelers, telt niet mee met gemiddelde</span>
+                </div>
+              </div>
+              <div className={`w-10 h-6 rounded-full transition-colors flex items-center px-0.5 ${newIsTeam ? 'bg-purple-500 justify-end' : 'bg-gray-300 justify-start'}`}>
+                <div className="w-5 h-5 bg-white rounded-full shadow-sm" />
+              </div>
+            </button>
+            <div className="flex gap-2">
+              <button type="submit" disabled={saving} className="flex-1 bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-60 text-sm flex items-center justify-center gap-2">
+                <Check className="w-4 h-4" /> Toevoegen
+              </button>
+              <button type="button" onClick={() => { setAdding(false); setNewNaam(''); setNewBedrag(''); setNewDubbel(false); setNewOpenBedrag(false); setNewIsTeam(false); }} className="px-5 bg-gray-100 text-gray-500 font-semibold rounded-xl hover:bg-gray-200 transition-colors text-sm">
+                Annuleren
+              </button>
+            </div>
+          </form>
+        ) : (
+          <button onClick={() => setAdding(true)} className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3.5 rounded-2xl transition-colors shadow-sm text-sm">
+            <Plus className="w-4 h-4" />
+            Boete toevoegen
+          </button>
+        )
+      )}
+
+      {/* Reguliere boetes */}
+      <div className="space-y-2">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Boetes</p>
+        {regulier.map(cat => renderCatCard(cat, false))}
+        {regulier.length === 0 && <p className="text-center text-sm text-gray-400 py-4">Nog geen boetes toegevoegd</p>}
+      </div>
+
+      {/* Teamboetes */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Shield className="w-3.5 h-3.5 text-purple-500" />
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Teamboetes</p>
+        </div>
+        <div className="bg-purple-50 border border-purple-100 rounded-2xl px-4 py-2.5 text-xs text-purple-700">
+          Teamboetes gelden voor alle spelers (aanwezig en afwezig) en tellen niet mee met het gemiddelde.
+        </div>
+        {teamboetes.map(cat => renderCatCard(cat, true))}
+        {teamboetes.length === 0 && <p className="text-center text-sm text-gray-400 py-4">Nog geen teamboetes toegevoegd</p>}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// OVERIG TAB (0=2 toggle, Gemini key, regels)
+// ============================================================
+function OverigTab({ instellingen, categorieen, isHoofdbeheerder, onChanged }: {
+  instellingen: AppInstellingen | null;
+  categorieen: Boetecategorie[];
+  isHoofdbeheerder: boolean;
+  onChanged: () => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [editingRegels, setEditingRegels] = useState(false);
+  const [regelsTekst, setRegelsTekst] = useState('');
+  const [editingGeminiKey, setEditingGeminiKey] = useState(false);
+  const [geminiKeyInput, setGeminiKeyInput] = useState('');
+
+  async function toggleNulIsTwee() {
+    if (!isHoofdbeheerder) return;
+    const newVal = !instellingen?.nul_euro_is_twee_euro;
+    await supabase.from('app_instellingen').upsert({ id: 1, nul_euro_is_twee_euro: newVal });
     onChanged();
   }
 
@@ -534,122 +688,41 @@ function CategorieenTab({ categorieen, isHoofdbeheerder, instellingen, onChanged
     onChanged();
   }
 
+  async function saveGeminiKey() {
+    setSaving(true);
+    await supabase.from('app_instellingen').upsert({ id: 1, gemini_api_key: geminiKeyInput.trim() || null });
+    setEditingGeminiKey(false); setSaving(false);
+    onChanged();
+  }
+
   const regelsTekstValue = extractRegelsTekst(categorieen);
-  const actief = categorieen.filter(c => c.actief && !c.naam.startsWith(REGELS_PREFIX));
 
   return (
     <div className="space-y-4">
-      {/* 0€ = 2€ toggle - only for hoofdbeheerder */}
-      {isHoofdbeheerder && (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-          <button
-            onClick={toggleNulIsTwee}
-            className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all ${
-              instellingen?.nul_euro_is_twee_euro ? 'border-blue-400 bg-blue-50' : 'border-gray-200'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <Settings className={`w-4 h-4 ${instellingen?.nul_euro_is_twee_euro ? 'text-blue-600' : 'text-gray-400'}`} />
-              <div className="text-left">
-                <span className={`text-sm font-medium block ${instellingen?.nul_euro_is_twee_euro ? 'text-blue-900' : 'text-gray-600'}`}>
-                  0{String.fromCharCode(8364)} eind van de week = 2{String.fromCharCode(8364)}
-                </span>
-                <span className="text-xs text-gray-400">Blijft aan tot handmatig uitgeschakeld</span>
-              </div>
+      {/* 0€ = 2€ toggle */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+        <button
+          onClick={toggleNulIsTwee}
+          disabled={!isHoofdbeheerder}
+          className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all ${
+            instellingen?.nul_euro_is_twee_euro ? 'border-blue-400 bg-blue-50' : 'border-gray-200'
+          } ${!isHoofdbeheerder ? 'cursor-default' : ''}`}
+        >
+          <div className="flex items-center gap-2">
+            <Settings className={`w-4 h-4 ${instellingen?.nul_euro_is_twee_euro ? 'text-blue-600' : 'text-gray-400'}`} />
+            <div className="text-left">
+              <span className={`text-sm font-medium block ${instellingen?.nul_euro_is_twee_euro ? 'text-blue-900' : 'text-gray-600'}`}>
+                0{String.fromCharCode(8364)} eind van de week = 2{String.fromCharCode(8364)}
+              </span>
+              <span className="text-xs text-gray-400">Blijft aan tot handmatig uitgeschakeld</span>
             </div>
-            <div className={`w-10 h-6 rounded-full transition-colors flex items-center px-0.5 ${
-              instellingen?.nul_euro_is_twee_euro ? 'bg-blue-500 justify-end' : 'bg-gray-300 justify-start'
-            }`}>
-              <div className="w-5 h-5 bg-white rounded-full shadow-sm" />
-            </div>
-          </button>
-        </div>
-      )}
-
-      {/* Add button / form */}
-      {isHoofdbeheerder && (
-        adding ? (
-          <form onSubmit={handleAdd} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Naam (volledige omschrijving)</label>
-              <input type="text" value={newNaam} onChange={e => setNewNaam(e.target.value)} placeholder="bijv. Te laat komen" autoFocus className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Bedrag (EUR)</label>
-              <input type="text" inputMode="decimal" value={newBedrag} onChange={e => setNewBedrag(e.target.value)} placeholder="2,00" className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
-            </div>
-            <DubbelToggle value={newDubbel} onChange={setNewDubbel} />
-            <OpenBedragToggle value={newOpenBedrag} onChange={setNewOpenBedrag} />
-            <div className="flex gap-2">
-              <button type="submit" disabled={saving} className="flex-1 bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-60 text-sm flex items-center justify-center gap-2">
-                <Check className="w-4 h-4" /> Toevoegen
-              </button>
-              <button type="button" onClick={() => { setAdding(false); setNewNaam(''); setNewBedrag(''); setNewDubbel(false); setNewOpenBedrag(false); }} className="px-5 bg-gray-100 text-gray-500 font-semibold rounded-xl hover:bg-gray-200 transition-colors text-sm">
-                Annuleren
-              </button>
-            </div>
-          </form>
-        ) : (
-          <button onClick={() => setAdding(true)} className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3.5 rounded-2xl transition-colors shadow-sm text-sm">
-            <Plus className="w-4 h-4" />
-            Categorie toevoegen
-          </button>
-        )
-      )}
-
-      {/* Active categories */}
-      <div className="space-y-2">
-        {actief.map(cat => (
-          <div key={cat.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            {editingId === cat.id && isHoofdbeheerder ? (
-              <div className="p-4 space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Naam (volledige omschrijving)</label>
-                  <input type="text" value={editNaam} onChange={e => setEditNaam(e.target.value)} autoFocus className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Bedrag (EUR)</label>
-                  <input type="text" inputMode="decimal" value={editBedrag} onChange={e => setEditBedrag(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <DubbelToggle value={editDubbel} onChange={setEditDubbel} />
-                <OpenBedragToggle value={editOpenBedrag} onChange={setEditOpenBedrag} />
-                <div className="flex gap-2">
-                  <button onClick={() => handleEditSave(cat)} disabled={saving} className="flex-1 bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-60 text-sm flex items-center justify-center gap-2">
-                    <Check className="w-4 h-4" /> Opslaan
-                  </button>
-                  <button onClick={() => setEditingId(null)} className="px-5 bg-gray-100 text-gray-500 font-semibold rounded-xl hover:bg-gray-200 transition-colors text-sm">
-                    Annuleren
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-3 px-4 py-3.5">
-                <div className="w-9 h-9 bg-blue-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                  <Tag className="w-4 h-4 text-blue-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-gray-800">{cat.naam}</p>
-                    {cat.verdubbelbaar && <span className="text-xs bg-orange-100 text-orange-600 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 flex-shrink-0"><Zap className="w-2.5 h-2.5" />x2</span>}
-                    {cat.open_bedrag && <span className="text-xs bg-green-100 text-green-600 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 flex-shrink-0"><Euro className="w-2.5 h-2.5" />Open</span>}
-                  </div>
-                  <p className="text-xs text-gray-400">{cat.open_bedrag ? 'Bedrag wordt ingevuld bij activiteit' : `${formatBedrag(cat.bedrag)} per stuk`}</p>
-                </div>
-                {isHoofdbeheerder && (
-                  <>
-                    <button onClick={() => { setEditingId(cat.id); setEditNaam(cat.naam); setEditBedrag((cat.bedrag / 100).toFixed(2).replace('.', ',')); setEditDubbel(cat.verdubbelbaar); setEditOpenBedrag(cat.open_bedrag); }} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button onClick={() => handleDelete(cat.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
           </div>
-        ))}
-        {actief.length === 0 && <p className="text-center text-sm text-gray-400 py-8">Nog geen categorieën toegevoegd</p>}
+          <div className={`w-10 h-6 rounded-full transition-colors flex items-center px-0.5 ${
+            instellingen?.nul_euro_is_twee_euro ? 'bg-blue-500 justify-end' : 'bg-gray-300 justify-start'
+          }`}>
+            <div className="w-5 h-5 bg-white rounded-full shadow-sm" />
+          </div>
+        </button>
       </div>
 
       {/* Gemini API key */}
@@ -678,11 +751,7 @@ function CategorieenTab({ categorieen, isHoofdbeheerder, instellingen, onChanged
             <p className="text-xs text-gray-400">Haal een gratis sleutel op via aistudio.google.com/apikey. De sleutel wordt veilig opgeslagen en alleen gebruikt om screenshots uit te lezen.</p>
             <div className="flex gap-2">
               <button
-                onClick={async () => {
-                  setSaving(true);
-                  await supabase.from('app_instellingen').upsert({ id: 1, gemini_api_key: geminiKeyInput.trim() || null });
-                  setEditingGeminiKey(false); setSaving(false); onChanged();
-                }}
+                onClick={saveGeminiKey}
                 disabled={saving}
                 className="flex-1 bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-60 text-sm flex items-center justify-center gap-2"
               >
@@ -733,160 +802,6 @@ function CategorieenTab({ categorieen, isHoofdbeheerder, instellingen, onChanged
         ) : (
           <p className="text-sm text-gray-600 whitespace-pre-wrap">{regelsTekstValue || 'Nog geen regels ingesteld'}</p>
         )}
-      </div>
-    </div>
-  );
-}
-
-// ============================================================
-// TEAMBOETES TAB
-// ============================================================
-function TeamBoetesTab({ categorieen, isHoofdbeheerder, onChanged }: {
-  categorieen: Boetecategorie[];
-  isHoofdbeheerder: boolean;
-  onChanged: () => void;
-}) {
-  const [adding, setAdding] = useState(false);
-  const [newNaam, setNewNaam] = useState('');
-  const [newBedrag, setNewBedrag] = useState('');
-  const [newDubbel, setNewDubbel] = useState(false);
-  const [newOpenBedrag, setNewOpenBedrag] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editNaam, setEditNaam] = useState('');
-  const [editBedrag, setEditBedrag] = useState('');
-  const [editDubbel, setEditDubbel] = useState(false);
-  const [editOpenBedrag, setEditOpenBedrag] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  const teamCats = categorieen.filter(c => c.is_teamboete);
-  const actief = teamCats.filter(c => c.actief);
-
-  async function handleAdd(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newNaam.trim()) return;
-    setSaving(true);
-    const bedrag = Math.round(parseFloat(newBedrag.replace(',', '.')) * 100) || 0;
-    const maxVolgorde = categorieen.reduce((max, c) => Math.max(max, c.volgorde), 0);
-    await supabase.from('boetecategorieen').insert({
-      naam: newNaam.trim(),
-      bedrag,
-      verdubbelbaar: newDubbel,
-      open_bedrag: newOpenBedrag,
-      is_teamboete: true,
-      volgorde: maxVolgorde + 1,
-    });
-    setNewNaam(''); setNewBedrag(''); setNewDubbel(false); setNewOpenBedrag(false);
-    setAdding(false); setSaving(false);
-    onChanged();
-  }
-
-  async function handleDelete(id: string) {
-    await supabase.from('boetecategorieen').update({ actief: false }).eq('id', id);
-    onChanged();
-  }
-
-  async function handleEditSave(cat: Boetecategorie) {
-    if (!editNaam.trim()) return;
-    setSaving(true);
-    const bedrag = Math.round(parseFloat(editBedrag.replace(',', '.')) * 100) || 0;
-    await supabase.from('boetecategorieen').update({
-      naam: editNaam.trim(),
-      bedrag,
-      verdubbelbaar: editDubbel,
-      open_bedrag: editOpenBedrag,
-    }).eq('id', cat.id);
-    setEditingId(null); setSaving(false);
-    onChanged();
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="bg-purple-50 border border-purple-100 rounded-2xl px-4 py-3 text-xs text-purple-800">
-        <p>Teamboetes gelden voor alle spelers (aanwezig en afwezig) en tellen niet mee met het gemiddelde. Ze verschijnen aan het einde van de activiteit-flow.</p>
-      </div>
-
-      {isHoofdbeheerder && (
-        adding ? (
-          <form onSubmit={handleAdd} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Naam (volledige omschrijving)</label>
-              <input type="text" value={newNaam} onChange={e => setNewNaam(e.target.value)} placeholder="bijv. Binnen kwartier 2 goals tegen" autoFocus className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Bedrag (EUR)</label>
-              <input type="text" inputMode="decimal" value={newBedrag} onChange={e => setNewBedrag(e.target.value)} placeholder="2,00" className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
-            </div>
-            <DubbelToggle value={newDubbel} onChange={setNewDubbel} />
-            <OpenBedragToggle value={newOpenBedrag} onChange={setNewOpenBedrag} />
-            <div className="flex gap-2">
-              <button type="submit" disabled={saving} className="flex-1 bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-60 text-sm flex items-center justify-center gap-2">
-                <Check className="w-4 h-4" /> Toevoegen
-              </button>
-              <button type="button" onClick={() => { setAdding(false); setNewNaam(''); setNewBedrag(''); setNewDubbel(false); setNewOpenBedrag(false); }} className="px-5 bg-gray-100 text-gray-500 font-semibold rounded-xl hover:bg-gray-200 transition-colors text-sm">
-                Annuleren
-              </button>
-            </div>
-          </form>
-        ) : (
-          <button onClick={() => setAdding(true)} className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3.5 rounded-2xl transition-colors shadow-sm text-sm">
-            <Plus className="w-4 h-4" />
-            Teamboete toevoegen
-          </button>
-        )
-      )}
-
-      <div className="space-y-2">
-        {actief.map(cat => (
-          <div key={cat.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            {editingId === cat.id && isHoofdbeheerder ? (
-              <div className="p-4 space-y-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Naam (volledige omschrijving)</label>
-                  <input type="text" value={editNaam} onChange={e => setEditNaam(e.target.value)} autoFocus className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Bedrag (EUR)</label>
-                  <input type="text" inputMode="decimal" value={editBedrag} onChange={e => setEditBedrag(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                </div>
-                <DubbelToggle value={editDubbel} onChange={setEditDubbel} />
-                <OpenBedragToggle value={editOpenBedrag} onChange={setEditOpenBedrag} />
-                <div className="flex gap-2">
-                  <button onClick={() => handleEditSave(cat)} disabled={saving} className="flex-1 bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-60 text-sm flex items-center justify-center gap-2">
-                    <Check className="w-4 h-4" /> Opslaan
-                  </button>
-                  <button onClick={() => setEditingId(null)} className="px-5 bg-gray-100 text-gray-500 font-semibold rounded-xl hover:bg-gray-200 transition-colors text-sm">
-                    Annuleren
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-3 px-4 py-3.5">
-                <div className="w-9 h-9 bg-purple-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                  <Shield className="w-4 h-4 text-purple-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-gray-800">{cat.naam}</p>
-                    {cat.verdubbelbaar && <span className="text-xs bg-orange-100 text-orange-600 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 flex-shrink-0"><Zap className="w-2.5 h-2.5" />x2</span>}
-                    {cat.open_bedrag && <span className="text-xs bg-green-100 text-green-600 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 flex-shrink-0"><Euro className="w-2.5 h-2.5" />Open</span>}
-                  </div>
-                  <p className="text-xs text-gray-400">{cat.open_bedrag ? 'Bedrag wordt ingevuld bij activiteit' : `${formatBedrag(cat.bedrag)} per stuk`}</p>
-                </div>
-                {isHoofdbeheerder && (
-                  <>
-                    <button onClick={() => { setEditingId(cat.id); setEditNaam(cat.naam); setEditBedrag((cat.bedrag / 100).toFixed(2).replace('.', ',')); setEditDubbel(cat.verdubbelbaar); setEditOpenBedrag(cat.open_bedrag); }} className="p-1.5 rounded-lg text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-colors">
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                    <button onClick={() => handleDelete(cat.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        ))}
-        {actief.length === 0 && <p className="text-center text-sm text-gray-400 py-8">Nog geen teamboetes toegevoegd</p>}
       </div>
     </div>
   );
