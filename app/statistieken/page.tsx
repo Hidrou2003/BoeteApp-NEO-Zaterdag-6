@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { supabase, Speler, Wedstrijd, WedstrijdSpelerStats, formatBedrag } from '@/lib/supabase';
-import { TrendingUp, Plus, ChevronDown, ChevronUp, Trash2, Calendar, Users, Target, Hand, Square, Circle, ArrowLeft, Check, Loader2, MapPin } from 'lucide-react';
+import { TrendingUp, Plus, ChevronDown, ChevronUp, Trash2, Calendar, Users, Target, Hand, Square, Circle, ArrowLeft, Check, MapPin } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { nl } from 'date-fns/locale';
 
@@ -21,6 +21,15 @@ export default function StatistiekenPage() {
 
 interface WedstrijdMetStats extends Wedstrijd {
   stats?: WedstrijdSpelerStats[];
+}
+
+interface SpelerStatInput {
+  speler_id: string;
+  goals: number;
+  assists: number;
+  gele_kaarten: number;
+  rode_kaarten: number;
+  eigen_goals: number;
 }
 
 function StatistiekenContent() {
@@ -54,9 +63,13 @@ function StatistiekenContent() {
     setWedstrijden(wedsMetStats);
     setSpelers(sps ?? []);
 
-    // Calculate totals per speler
+    recalcTotaalStats(stats ?? []);
+    setLoading(false);
+  }
+
+  function recalcTotaalStats(stats: WedstrijdSpelerStats[]) {
     const totals: Record<string, { goals: number; assists: number; gele_kaarten: number; rode_kaarten: number; eigen_goals: number }> = {};
-    for (const s of stats ?? []) {
+    for (const s of stats) {
       if (!totals[s.speler_id]) totals[s.speler_id] = { goals: 0, assists: 0, gele_kaarten: 0, rode_kaarten: 0, eigen_goals: 0 };
       totals[s.speler_id].goals += s.goals;
       totals[s.speler_id].assists += s.assists;
@@ -65,31 +78,57 @@ function StatistiekenContent() {
       totals[s.speler_id].eigen_goals += s.eigen_goals;
     }
     setTotaalStats(totals);
-    setLoading(false);
   }
 
-  async function addWedstrijd(datum: string, tegenstander: string, locatie: string) {
-    const { data } = await supabase.from('wedstrijden').insert({
+  async function addWedstrijdWithStats(datum: string, tegenstander: string, locatie: string, stats: SpelerStatInput[]) {
+    const { data: wedstrijd } = await supabase.from('wedstrijden').insert({
       datum,
       tegenstander,
       locatie: locatie || null,
       gemaakt_door: profile?.id,
     }).select().single();
-    if (data) {
-      setWedstrijden(prev => [{ ...data, stats: [] }, ...prev]);
-      setShowAddForm(false);
+
+    if (!wedstrijd) return;
+
+    const validStats = stats.filter(s => s.goals > 0 || s.assists > 0 || s.gele_kaarten > 0 || s.rode_kaarten > 0 || s.eigen_goals > 0);
+    let savedStats: WedstrijdSpelerStats[] = [];
+    if (validStats.length > 0) {
+      const { data: inserted } = await supabase.from('wedstrijd_speler_stats').insert(
+        validStats.map(s => ({
+          wedstrijd_id: wedstrijd.id,
+          speler_id: s.speler_id,
+          goals: s.goals,
+          assists: s.assists,
+          gele_kaarten: s.gele_kaarten,
+          rode_kaarten: s.rode_kaarten,
+          eigen_goals: s.eigen_goals,
+        }))
+      ).select('*, spelers(*)');
+      savedStats = inserted ?? [];
     }
+
+    const newWedstrijd: WedstrijdMetStats = { ...wedstrijd, stats: savedStats };
+    setWedstrijden(prev => [newWedstrijd, ...prev]);
+
+    // Update totaalStats locally
+    const allStats = wedstrijden.flatMap(w => w.stats ?? []).concat(savedStats);
+    recalcTotaalStats(allStats);
+
+    setShowAddForm(false);
   }
 
   async function deleteWedstrijd(id: string) {
+    await supabase.from('wedstrijd_speler_stats').delete().eq('wedstrijd_id', id);
     await supabase.from('wedstrijden').delete().eq('id', id);
     setWedstrijden(prev => prev.filter(w => w.id !== id));
-    load();
+    // Recalc totals
+    const remaining = wedstrijden.filter(w => w.id !== id).flatMap(w => w.stats ?? []);
+    recalcTotaalStats(remaining);
   }
 
-  async function updateStat(wedstrijdId: string, spelerId: string, field: keyof WedstrijdSpelerStats, value: number) {
-    // Upsert the stat row
+  const updateStat = useCallback(async (wedstrijdId: string, spelerId: string, field: keyof WedstrijdSpelerStats, value: number) => {
     const existing = wedstrijden.find(w => w.id === wedstrijdId)?.stats?.find(s => s.speler_id === spelerId);
+
     if (existing) {
       await supabase.from('wedstrijd_speler_stats').update({ [field]: value }).eq('id', existing.id);
     } else {
@@ -97,17 +136,23 @@ function StatistiekenContent() {
         wedstrijd_id: wedstrijdId,
         speler_id: spelerId,
         [field]: value,
-      }).select().single();
+      }).select('*, spelers(*)').single();
       if (data) {
         setWedstrijden(prev => prev.map(w => {
           if (w.id !== wedstrijdId) return w;
-          const speler = spelers.find(s => s.id === spelerId);
-          return { ...w, stats: [...(w.stats ?? []), { ...data, spelers: speler }] };
+          return { ...w, stats: [...(w.stats ?? []), data] };
         }));
+        // Update totaal
+        setTotaalStats(prev => {
+          const cur = prev[spelerId] ?? { goals: 0, assists: 0, gele_kaarten: 0, rode_kaarten: 0, eigen_goals: 0 };
+          const fieldName = field as keyof typeof cur;
+          return { ...prev, [spelerId]: { ...cur, [fieldName]: (cur[fieldName] as number) + value } };
+        });
+        return;
       }
-      return;
     }
-    // Update local state
+
+    // Update local state for existing row
     setWedstrijden(prev => prev.map(w => {
       if (w.id !== wedstrijdId) return w;
       return {
@@ -115,8 +160,15 @@ function StatistiekenContent() {
         stats: (w.stats ?? []).map(s => s.speler_id === spelerId ? { ...s, [field]: value } : s),
       };
     }));
-    load();
-  }
+
+    // Update totaalStats locally — diff the old and new value
+    setTotaalStats(prev => {
+      const cur = prev[spelerId] ?? { goals: 0, assists: 0, gele_kaarten: 0, rode_kaarten: 0, eigen_goals: 0 };
+      const oldVal = existing ? (existing[field] as number) : 0;
+      const fieldName = field as keyof typeof cur;
+      return { ...prev, [spelerId]: { ...cur, [fieldName]: (cur[fieldName] as number) - oldVal + value } };
+    });
+  }, [wedstrijden]);
 
   if (loading) return <div className="text-center py-16 text-gray-400 text-sm">Laden...</div>;
 
@@ -130,7 +182,11 @@ function StatistiekenContent() {
       {/* Add wedstrijd button / form */}
       {isStatistiekenbeheerder && (
         showAddForm ? (
-          <AddWedstrijdForm onAdd={addWedstrijd} onCancel={() => setShowAddForm(false)} />
+          <AddWedstrijdFormWithStats
+            spelers={spelers}
+            onAdd={addWedstrijdWithStats}
+            onCancel={() => setShowAddForm(false)}
+          />
         ) : (
           <button
             onClick={() => setShowAddForm(true)}
@@ -249,24 +305,41 @@ function StatistiekenContent() {
   );
 }
 
-function AddWedstrijdForm({ onAdd, onCancel }: {
-  onAdd: (datum: string, tegenstander: string, locatie: string) => void;
+function AddWedstrijdFormWithStats({ spelers, onAdd, onCancel }: {
+  spelers: Speler[];
+  onAdd: (datum: string, tegenstander: string, locatie: string, stats: SpelerStatInput[]) => void;
   onCancel: () => void;
 }) {
   const [datum, setDatum] = useState('');
   const [tegenstander, setTegenstander] = useState('');
   const [locatie, setLocatie] = useState('');
   const [saving, setSaving] = useState(false);
+  const [expandedSpeler, setExpandedSpeler] = useState<string | null>(null);
+  const [statInputs, setStatInputs] = useState<Record<string, SpelerStatInput>>({});
+
+  function getStat(spelerId: string): SpelerStatInput {
+    return statInputs[spelerId] ?? { speler_id: spelerId, goals: 0, assists: 0, gele_kaarten: 0, rode_kaarten: 0, eigen_goals: 0 };
+  }
+
+  function setStatField(spelerId: string, field: keyof SpelerStatInput, value: number) {
+    setStatInputs(prev => ({
+      ...prev,
+      [spelerId]: { ...getStat(spelerId), [field]: value },
+    }));
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!datum || !tegenstander.trim()) return;
     setSaving(true);
-    onAdd(datum, tegenstander.trim(), locatie.trim());
+    const stats = Object.values(statInputs);
+    onAdd(datum, tegenstander.trim(), locatie.trim(), stats);
   }
 
+  const hasAnyStats = Object.values(statInputs).some(s => s.goals > 0 || s.assists > 0 || s.gele_kaarten > 0 || s.rode_kaarten > 0 || s.eigen_goals > 0);
+
   return (
-    <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+    <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-4">
       <div>
         <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Datum</label>
         <input
@@ -299,9 +372,68 @@ function AddWedstrijdForm({ onAdd, onCancel }: {
           className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
+
+      {/* Player stats list */}
+      <div>
+        <div className="flex items-center gap-2 mb-2">
+          <Users className="w-4 h-4 text-gray-400" />
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Spelerstatistieken</p>
+          {hasAnyStats && <span className="text-xs text-green-600 font-medium">{Object.values(statInputs).filter(s => s.goals > 0 || s.assists > 0 || s.gele_kaarten > 0 || s.rode_kaarten > 0 || s.eigen_goals > 0).length} spelers met stats</span>}
+        </div>
+        <div className="border border-gray-100 rounded-xl overflow-hidden divide-y divide-gray-50 max-h-80 overflow-y-auto">
+          {spelers.map(sp => {
+            const isExpanded = expandedSpeler === sp.id;
+            const stats = getStat(sp.id);
+            const hasStats = stats.goals > 0 || stats.assists > 0 || stats.gele_kaarten > 0 || stats.rode_kaarten > 0 || stats.eigen_goals > 0;
+            return (
+              <div key={sp.id}>
+                <button
+                  type="button"
+                  onClick={() => setExpandedSpeler(isExpanded ? null : sp.id)}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-800">{sp.naam}</p>
+                    {hasStats && (
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {stats.goals > 0 && <span className="text-xs text-gray-500">{stats.goals}G</span>}
+                        {stats.assists > 0 && <span className="text-xs text-gray-500">{stats.assists}A</span>}
+                        {stats.gele_kaarten > 0 && <span className="text-xs text-yellow-600">{stats.gele_kaarten}GK</span>}
+                        {stats.rode_kaarten > 0 && <span className="text-xs text-red-600">{stats.rode_kaarten}RK</span>}
+                        {stats.eigen_goals > 0 && <span className="text-xs text-red-500">{stats.eigen_goals}EG</span>}
+                      </div>
+                    )}
+                  </div>
+                  {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+                </button>
+                {isExpanded && (
+                  <div className="px-4 pb-4 space-y-2.5 bg-gray-50">
+                    <StatRow label="Goals" icon={<Target className="w-4 h-4 text-gray-500" />}>
+                      <StatStepper value={stats.goals} onChange={v => setStatField(sp.id, 'goals', v)} color="text-gray-600" />
+                    </StatRow>
+                    <StatRow label="Assists" icon={<Hand className="w-4 h-4 text-gray-500" />}>
+                      <StatStepper value={stats.assists} onChange={v => setStatField(sp.id, 'assists', v)} color="text-gray-600" />
+                    </StatRow>
+                    <StatRow label="Gele kaarten" icon={<Square className="w-4 h-4 text-yellow-500" />}>
+                      <StatStepper value={stats.gele_kaarten} onChange={v => setStatField(sp.id, 'gele_kaarten', v)} color="text-yellow-700" />
+                    </StatRow>
+                    <StatRow label="Rode kaarten" icon={<Circle className="w-4 h-4 text-red-500" />}>
+                      <StatStepper value={stats.rode_kaarten} onChange={v => setStatField(sp.id, 'rode_kaarten', v)} color="text-red-700" />
+                    </StatRow>
+                    <StatRow label="Eigen goals" icon={<ArrowLeft className="w-4 h-4 text-red-500" />}>
+                      <StatStepper value={stats.eigen_goals} onChange={v => setStatField(sp.id, 'eigen_goals', v)} color="text-red-600" />
+                    </StatRow>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="flex gap-2">
-        <button type="submit" disabled={saving} className="flex-1 bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-60 text-sm flex items-center justify-center gap-2">
-          <Check className="w-4 h-4" /> Toevoegen
+        <button type="submit" disabled={saving || !datum || !tegenstander.trim()} className="flex-1 bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-60 text-sm flex items-center justify-center gap-2">
+          <Check className="w-4 h-4" /> {saving ? 'Opslaan...' : 'Opslaan'}
         </button>
         <button type="button" onClick={onCancel} className="px-5 bg-gray-100 text-gray-500 font-semibold rounded-xl hover:bg-gray-200 transition-colors text-sm">
           Annuleren
@@ -319,6 +451,7 @@ function StatStepper({ value, onChange, color }: {
   return (
     <div className="flex items-center gap-1">
       <button
+        type="button"
         onClick={() => onChange(Math.max(0, value - 1))}
         disabled={value === 0}
         className={`w-7 h-7 rounded-lg border border-gray-200 flex items-center justify-center ${color} hover:bg-gray-100 active:bg-gray-200 transition-colors disabled:opacity-30`}
@@ -327,6 +460,7 @@ function StatStepper({ value, onChange, color }: {
       </button>
       <span className="w-6 text-center text-sm font-bold text-gray-800">{value}</span>
       <button
+        type="button"
         onClick={() => onChange(value + 1)}
         className={`w-7 h-7 rounded-lg border border-gray-200 flex items-center justify-center ${color} hover:bg-gray-100 active:bg-gray-200 transition-colors`}
       >

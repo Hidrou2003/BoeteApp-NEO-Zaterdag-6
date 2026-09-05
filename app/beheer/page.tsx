@@ -129,9 +129,11 @@ function BeheerContent() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-gray-900 truncate">
-                      {user.naam || user.email}
+                      {isHoofdbeheerder ? (user.naam || user.email) : (user.naam || 'Gebruiker')}
                     </p>
-                    <p className="text-xs text-gray-400 truncate">{user.email}</p>
+                    {isHoofdbeheerder && (
+                      <p className="text-xs text-gray-400 truncate">{user.email}</p>
+                    )}
                   </div>
 
                   {/* Role badge */}

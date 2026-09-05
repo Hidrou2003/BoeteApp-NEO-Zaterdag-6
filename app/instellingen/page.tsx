@@ -312,10 +312,17 @@ function SpelersTab({ spelers, profiles, aliases, isHoofdbeheerder, onChanged }:
                           </span>
                         )}
                         {linkedProfile ? (
-                          <div className="flex items-center gap-1">
-                            <Mail className="w-3 h-3 text-green-600" />
-                            <span className="text-xs text-green-600 truncate">{linkedProfile.email}</span>
-                          </div>
+                          isHoofdbeheerder ? (
+                            <div className="flex items-center gap-1">
+                              <Mail className="w-3 h-3 text-green-600" />
+                              <span className="text-xs text-green-600 truncate">{linkedProfile.email}</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <Mail className="w-3 h-3 text-green-600" />
+                              <span className="text-xs text-green-600">Gekoppeld</span>
+                            </div>
+                          )
                         ) : (
                           <span className="text-xs text-amber-600 flex items-center gap-1">
                             <Mail className="w-3 h-3" />
@@ -324,13 +331,20 @@ function SpelersTab({ spelers, profiles, aliases, isHoofdbeheerder, onChanged }:
                         )}
                         <span className="text-xs text-gray-300">·</span>
                         {hasAliases ? (
-                          <button
-                            onClick={() => setExpandedAliases(isExpanded ? null : sp.id)}
-                            className="text-xs text-green-600 flex items-center gap-1 hover:text-green-700"
-                          >
-                            <UserCheck className="w-3 h-3" />
-                            {spelerAliases.length} naamkoppeling{spelerAliases.length !== 1 ? 'en' : ''}
-                          </button>
+                          isHoofdbeheerder ? (
+                            <button
+                              onClick={() => setExpandedAliases(isExpanded ? null : sp.id)}
+                              className="text-xs text-green-600 flex items-center gap-1 hover:text-green-700"
+                            >
+                              <UserCheck className="w-3 h-3" />
+                              {spelerAliases.length} naamkoppeling{spelerAliases.length !== 1 ? 'en' : ''}
+                            </button>
+                          ) : (
+                            <span className="text-xs text-green-600 flex items-center gap-1">
+                              <UserCheck className="w-3 h-3" />
+                              {spelerAliases.length} naamkoppeling{spelerAliases.length !== 1 ? 'en' : ''}
+                            </span>
+                          )
                         ) : (
                           <span className="text-xs text-amber-600 flex items-center gap-1">
                             <UserCheck className="w-3 h-3" />
@@ -354,8 +368,8 @@ function SpelersTab({ spelers, profiles, aliases, isHoofdbeheerder, onChanged }:
                     )}
                   </div>
 
-                  {/* Aliases section - expandable */}
-                  {isExpanded && (
+                  {/* Aliases section - expandable, only for hoofdbeheerder */}
+                  {isExpanded && isHoofdbeheerder && (
                     <div className="mt-3 ml-12 space-y-2">
                       {spelerAliases.map(a => (
                         <div key={a.id} className="flex items-center gap-2 bg-purple-50 rounded-lg px-3 py-2">
