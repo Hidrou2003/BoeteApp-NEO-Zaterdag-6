@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
-import { supabase, Speler, Betaling, BetaalStatus, BankScreenshot, formatBedrag, AppInstellingen } from '@/lib/supabase';
+import { supabase, Speler, Betaling, BetaalStatus, BankScreenshot, formatBedrag, AppInstellingen, Boetecategorie, BOETEPOT_PREFIX, extractBoetepotBasis } from '@/lib/supabase';
 import { CreditCard, ChevronDown, ChevronUp, User, Check, Clock, X, AlertCircle, Wallet, Link2, Camera, Pencil, ArrowUpRight, BarChart3, Trophy } from 'lucide-react';
 import AfgerondTab from './AfgerondTab';
 import { format, parseISO, getISOWeek, getISOWeekYear } from 'date-fns';
@@ -109,8 +109,10 @@ function BetalingContent() {
   const [expandedWeek, setExpandedWeek] = useState<string | null>(null);
   const [editingTeWeinig, setEditingTeWeinig] = useState<string | null>(null);
   const [teWeinigValue, setTeWeinigValue] = useState('');
-  const [editingTeVeel, setEditingTeVeel] = useState<string | null>(null);
-  const [teVeelValue, setTeVeelValue] = useState('');
+  const [boetepotBasis, setBoetepotBasis] = useState(0);
+  const [boetepotVanafWeek, setBoetepotVanafWeek] = useState<string | null>(null);
+  const [editingBoetepot, setEditingBoetepot] = useState(false);
+  const [boetepotInput, setBoetepotInput] = useState('');
   const [screenshots, setScreenshots] = useState<BankScreenshot[]>([]);
   const [allSpelers, setAllSpelers] = useState<Speler[]>([]);
   const [instellingen, setInstellingen] = useState<AppInstellingen | null>(null);
@@ -140,6 +142,11 @@ function BetalingContent() {
 
     setScreenshots(shots as BankScreenshot[] ?? []);
     setAllSpelers(spelers as Speler[] ?? []);
+
+    const { data: cats } = await supabase.from('boetecategorieen').select('*');
+    const boetepot = extractBoetepotBasis((cats ?? []) as Boetecategorie[]);
+    setBoetepotBasis(boetepot.basis);
+    setBoetepotVanafWeek(boetepot.vanafWeek);
 
     const nulIsTwee = inst?.nul_euro_is_twee_euro ?? false;
 
@@ -253,29 +260,40 @@ function BetalingContent() {
     }
 
     const teWeinig = status === 'te_weinig_betaald' ? (existing?.te_weinig_bedrag ?? 0) : 0;
-    const teVeel = status === 'te_veel_betaald' ? (existing?.te_weinig_bedrag ?? 0) : 0;
 
     await supabase.from('betalingen').upsert({
       speler_id: spelerId,
       week_key: weekKey,
       betaal_status: status,
-      te_weinig_bedrag: status === 'te_weinig_betaald' ? (existing?.te_weinig_bedrag ?? 0) : teVeel,
+      te_weinig_bedrag: teWeinig,
     }, { onConflict: 'speler_id,week_key' });
 
     load();
   }
 
-  async function saveTeVeel(weekKey: string, spelerId: string) {
+  async function saveBoetepotBasis() {
     if (!isHoofdbeheerder) return;
-    const bedrag = Math.round(parseFloat(teVeelValue.replace(',', '.')) * 100) || 0;
-    await supabase.from('betalingen').upsert({
-      speler_id: spelerId,
-      week_key: weekKey,
-      betaal_status: 'te_veel_betaald',
-      te_weinig_bedrag: bedrag,
-    }, { onConflict: 'speler_id,week_key' });
-    setEditingTeVeel(null);
-    setTeVeelValue('');
+    const bedrag = Math.round(parseFloat(boetepotInput.replace(',', '.')) * 100) || 0;
+    const vanafWeek = getPayableWeekKey();
+    const payload = `${BOETEPOT_PREFIX}${bedrag}|${vanafWeek ?? ''}`;
+
+    const { data: cats } = await supabase.from('boetecategorieen').select('*');
+    const existing = (cats as Boetecategorie[])?.find(c => c.naam.startsWith(BOETEPOT_PREFIX));
+    if (existing) {
+      await supabase.from('boetecategorieen').update({ naam: payload }).eq('id', existing.id);
+    } else {
+      const maxVolgorde = (cats as Boetecategorie[])?.reduce((max, c) => Math.max(max, c.volgorde), 0) ?? 0;
+      await supabase.from('boetecategorieen').insert({
+        naam: payload,
+        bedrag: 0,
+        verdubbelbaar: false,
+        open_bedrag: false,
+        actief: false,
+        volgorde: maxVolgorde + 1,
+      });
+    }
+    setEditingBoetepot(false);
+    setBoetepotInput('');
     load();
   }
 
@@ -327,7 +345,6 @@ function BetalingContent() {
 
   const statusLabels: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
     betaald: { label: 'Betaald', color: 'bg-green-100 text-green-700', icon: <Check className="w-3 h-3" /> },
-    te_veel_betaald: { label: 'Te veel betaald', color: 'bg-green-100 text-green-700', icon: <Check className="w-3 h-3" /> },
     te_laag_betaald: { label: 'Te laat betaald', color: 'bg-orange-100 text-orange-700', icon: <Clock className="w-3 h-3" /> },
     niet_betaald: { label: 'Niet betaald', color: 'bg-red-100 text-red-700', icon: <X className="w-3 h-3" /> },
     te_weinig_betaald: { label: 'Te weinig betaald', color: 'bg-amber-100 text-amber-700', icon: <AlertCircle className="w-3 h-3" /> },
@@ -336,6 +353,14 @@ function BetalingContent() {
   const payableWeekKey = getPayableWeekKey();
   const visibleWeken = weken;
   const betalingWeken = weken.filter(w => w.weekKey === payableWeekKey);
+
+  // Boetepot totaal = manual basis + sum of all paid weeks from vanafWeek onward
+  const boetepotTotaal = boetepotBasis + weken.reduce((sum, w) => {
+    if (boetepotVanafWeek && w.weekKey < boetepotVanafWeek) return sum;
+    return sum + w.spelers.reduce((s2, sp) => {
+      return sp.betaling?.betaal_status === 'betaald' ? s2 + sp.teBetalen : s2;
+    }, 0);
+  }, 0);
 
   return (
     <div className="space-y-5">
@@ -384,15 +409,19 @@ function BetalingContent() {
               setEditingTeWeinig={setEditingTeWeinig}
               teWeinigValue={teWeinigValue}
               setTeWeinigValue={setTeWeinigValue}
-              editingTeVeel={editingTeVeel}
-              setEditingTeVeel={setEditingTeVeel}
-              teVeelValue={teVeelValue}
-              setTeVeelValue={setTeVeelValue}
               setBetaalStatus={setBetaalStatus}
               saveTeWeinig={saveTeWeinig}
-              saveTeVeel={saveTeVeel}
               statusLabels={statusLabels}
               onSetWeekNietGedeeld={setWeekNietGedeeld}
+              boetepotBasis={boetepotBasis}
+              boetepotVanafWeek={boetepotVanafWeek}
+              boetepotTotaal={boetepotTotaal}
+              isHoofdbeheerder={isHoofdbeheerder}
+              editingBoetepot={editingBoetepot}
+              setEditingBoetepot={setEditingBoetepot}
+              boetepotInput={boetepotInput}
+              setBoetepotInput={setBoetepotInput}
+              onSaveBoetepotBasis={saveBoetepotBasis}
             />
           ) : (
             <AfgerondTab screenshots={screenshots} spelers={allSpelers} weken={visibleWeken} onChanged={load} />
@@ -419,7 +448,6 @@ function TabButton({ active, onClick, icon, label }: { active: boolean; onClick:
 
 const statusLabelsGlobal: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   betaald: { label: 'Betaald', color: 'bg-green-100 text-green-700', icon: <Check className="w-3 h-3" /> },
-  te_veel_betaald: { label: 'Te veel betaald', color: 'bg-green-100 text-green-700', icon: <Check className="w-3 h-3" /> },
   te_laag_betaald: { label: 'Te laat betaald', color: 'bg-orange-100 text-orange-700', icon: <Clock className="w-3 h-3" /> },
   niet_betaald: { label: 'Niet betaald', color: 'bg-red-100 text-red-700', icon: <X className="w-3 h-3" /> },
   te_weinig_betaald: { label: 'Te weinig betaald', color: 'bg-amber-100 text-amber-700', icon: <AlertCircle className="w-3 h-3" /> },
@@ -520,16 +548,11 @@ function PersoonlijkeBetalingTab({ profile, weken, instellingen, isHoofdbeheerde
                       </div>
                     </div>
                     {statusInfo && (
-                      <div className="mt-2 flex items-center gap-2">
+                      <div className="mt-2">
                         <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium ${statusInfo.color}`}>
                           {statusInfo.icon}
                           {statusInfo.label}
                         </span>
-                        {status === 'te_veel_betaald' && myEntry.betaling?.te_weinig_bedrag ? (
-                          <span className="text-xs text-green-600 font-medium">
-                            {formatBedrag(myEntry.betaling.te_weinig_bedrag)} teveel betaald
-                          </span>
-                        ) : null}
                       </div>
                     )}
                   </div>
@@ -632,7 +655,7 @@ function PersoonlijkeBetalingTab({ profile, weken, instellingen, isHoofdbeheerde
 // ============================================================
 // BOETE WEEK TAB - overview per player + beheerder payment controls
 // ============================================================
-function BoeteWeekTab({ weken, expandedWeek, setExpandedWeek, isBeheerder, editingTeWeinig, setEditingTeWeinig, teWeinigValue, setTeWeinigValue, editingTeVeel, setEditingTeVeel, teVeelValue, setTeVeelValue, setBetaalStatus, saveTeWeinig, saveTeVeel, statusLabels, onSetWeekNietGedeeld }: {
+function BoeteWeekTab({ weken, expandedWeek, setExpandedWeek, isBeheerder, editingTeWeinig, setEditingTeWeinig, teWeinigValue, setTeWeinigValue, setBetaalStatus, saveTeWeinig, statusLabels, onSetWeekNietGedeeld, boetepotBasis, boetepotVanafWeek, boetepotTotaal, isHoofdbeheerder, editingBoetepot, setEditingBoetepot, boetepotInput, setBoetepotInput, onSaveBoetepotBasis }: {
   weken: BetalingWeekData[];
   expandedWeek: string | null;
   setExpandedWeek: (k: string | null) => void;
@@ -641,22 +664,25 @@ function BoeteWeekTab({ weken, expandedWeek, setExpandedWeek, isBeheerder, editi
   setEditingTeWeinig: (k: string | null) => void;
   teWeinigValue: string;
   setTeWeinigValue: (v: string) => void;
-  editingTeVeel: string | null;
-  setEditingTeVeel: (k: string | null) => void;
-  teVeelValue: string;
-  setTeVeelValue: (v: string) => void;
   setBetaalStatus: (weekKey: string, spelerId: string, status: BetaalStatus) => void;
   saveTeWeinig: (weekKey: string, spelerId: string) => void;
-  saveTeVeel: (weekKey: string, spelerId: string) => void;
   statusLabels: Record<string, { label: string; color: string; icon: React.ReactNode }>;
   onSetWeekNietGedeeld: (weekKey: string) => void;
+  boetepotBasis: number;
+  boetepotVanafWeek: string | null;
+  boetepotTotaal: number;
+  isHoofdbeheerder: boolean;
+  editingBoetepot: boolean;
+  setEditingBoetepot: (v: boolean) => void;
+  boetepotInput: string;
+  setBoetepotInput: (v: string) => void;
+  onSaveBoetepotBasis: () => void;
 }) {
-  // Build top 3 betalingen podium — only count weeks actually paid (betaald or te_veel_betaald)
+  // Build top 3 betalingen podium — only count weeks actually paid
   const podiumMap = new Map<string, { speler: Speler; totaal: number }>();
   for (const w of weken) {
     for (const s of w.spelers) {
-      const status = s.betaling?.betaal_status;
-      if (status !== 'betaald' && status !== 'te_veel_betaald') continue;
+      if (s.betaling?.betaal_status !== 'betaald') continue;
       const cur = podiumMap.get(s.speler.id);
       if (cur) cur.totaal += s.teBetalen;
       else podiumMap.set(s.speler.id, { speler: s.speler, totaal: s.teBetalen });
@@ -664,26 +690,64 @@ function BoeteWeekTab({ weken, expandedWeek, setExpandedWeek, isBeheerder, editi
   }
   const podiumSpelers = Array.from(podiumMap.values()).sort((a, b) => b.totaal - a.totaal).slice(0, 3);
 
-  // Total actually paid across all weeks
-  const totaalBetaald = weken.reduce((sum, w) => {
-    return sum + w.spelers.reduce((s2, sp) => {
-      const st = sp.betaling?.betaal_status;
-      return (st === 'betaald' || st === 'te_veel_betaald') ? s2 + sp.teBetalen : s2;
-    }, 0);
-  }, 0);
+  // Total of all boetes across all weeks
+  const totaalAlleBoetes = weken.reduce((sum, w) => sum + w.weekTotaal, 0);
 
   return (
     <div className="space-y-3">
-      {/* Total paid banner */}
-      {totaalBetaald > 0 && (
-        <div className="bg-blue-50 rounded-2xl border border-blue-100 px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Check className="w-4 h-4 text-blue-600" />
-            <p className="text-sm font-semibold text-gray-900">Totaal betaald</p>
-          </div>
-          <span className="text-base font-bold text-blue-700">{formatBedrag(totaalBetaald)}</span>
+      {/* Totaal alle boetes banner */}
+      <div className="bg-blue-50 rounded-2xl border border-blue-100 px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="w-4 h-4 text-blue-600" />
+          <p className="text-sm font-semibold text-gray-900">Totaal alle boetes</p>
         </div>
-      )}
+        <span className="text-base font-bold text-blue-700">{formatBedrag(totaalAlleBoetes)}</span>
+      </div>
+
+      {/* Boetepot totaal banner — editable by hoofdbeheerder */}
+      <div className="bg-green-50 rounded-2xl border border-green-100 px-4 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Wallet className="w-4 h-4 text-green-600" />
+            <p className="text-sm font-semibold text-gray-900">Boetepot totaal</p>
+          </div>
+          {isHoofdbeheerder && !editingBoetepot && (
+            <button
+              onClick={() => { setBoetepotInput((boetepotBasis / 100).toFixed(2).replace('.', ',')); setEditingBoetepot(true); }}
+              className="p-1.5 rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-100 transition-colors"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
+          <span className="text-base font-bold text-green-700">{formatBedrag(boetepotTotaal)}</span>
+        </div>
+        {editingBoetepot && (
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              type="text"
+              inputMode="decimal"
+              value={boetepotInput}
+              onChange={e => setBoetepotInput(e.target.value)}
+              placeholder="bijv. 300,00"
+              autoFocus
+              className="w-28 px-2 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none focus:ring-2 focus:ring-green-500"
+            />
+            <button
+              onClick={onSaveBoetepotBasis}
+              className="px-2 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700"
+            >
+              Opslaan
+            </button>
+            <button
+              onClick={() => { setEditingBoetepot(false); setBoetepotInput(''); }}
+              className="px-2 py-1.5 bg-gray-100 text-gray-500 rounded-lg text-xs font-medium hover:bg-gray-200"
+            >
+              Annuleren
+            </button>
+            <p className="text-[11px] text-gray-400 ml-1">Wordt ingesteld vanaf de huidige week en telt daarna automatisch door.</p>
+          </div>
+        )}
+      </div>
       {podiumSpelers.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
           <div className="flex items-center gap-2 mb-3">
@@ -840,47 +904,6 @@ function BoeteWeekTab({ weken, expandedWeek, setExpandedWeek, isBeheerder, editi
                                   {s.betaling?.te_weinig_bedrag
                                     ? `Te weinig: ${formatBedrag(s.betaling.te_weinig_bedrag)} (klik om te wijzigen)`
                                     : 'Vul te weinig bedrag in'}
-                                </button>
-                              )}
-                            </div>
-                          )}
-                          {status === 'te_veel_betaald' && (
-                            <div className="flex items-center gap-2">
-                              {editingTeVeel === editKey ? (
-                                <>
-                                  <input
-                                    type="text"
-                                    inputMode="decimal"
-                                    value={teVeelValue}
-                                    onChange={e => setTeVeelValue(e.target.value)}
-                                    placeholder="bijv. 1,50"
-                                    autoFocus
-                                    className="w-24 px-2 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                  />
-                                  <button
-                                    onClick={() => saveTeVeel(week.weekKey, s.speler.id)}
-                                    className="px-2 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700"
-                                  >
-                                    Opslaan
-                                  </button>
-                                  <button
-                                    onClick={() => { setEditingTeVeel(null); setTeVeelValue(''); }}
-                                    className="px-2 py-1.5 bg-gray-100 text-gray-500 rounded-lg text-xs font-medium hover:bg-gray-200"
-                                  >
-                                    Annuleren
-                                  </button>
-                                </>
-                              ) : (
-                                <button
-                                  onClick={() => {
-                                    setEditingTeVeel(editKey);
-                                    setTeVeelValue(s.betaling?.te_weinig_bedrag ? ((s.betaling.te_weinig_bedrag / 100).toFixed(2).replace('.', ',')) : '');
-                                  }}
-                                  className="text-xs text-green-600 font-medium hover:text-green-800"
-                                >
-                                  {s.betaling?.te_weinig_bedrag
-                                    ? `Te veel betaald: ${formatBedrag(s.betaling.te_weinig_bedrag)} (klik om te wijzigen)`
-                                    : 'Vul te veel betaald bedrag in'}
                                 </button>
                               )}
                             </div>

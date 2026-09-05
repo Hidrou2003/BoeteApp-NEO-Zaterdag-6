@@ -116,7 +116,7 @@ export interface OverigeBoete {
   spelers?: Speler;
 }
 
-export type BetaalStatus = 'betaald' | 'te_laag_betaald' | 'niet_betaald' | 'te_weinig_betaald' | 'niet_gedeeld' | 'te_veel_betaald' | null;
+export type BetaalStatus = 'betaald' | 'te_laag_betaald' | 'niet_betaald' | 'te_weinig_betaald' | 'niet_gedeeld' | null;
 
 export interface Betaling {
   id: string;
@@ -141,6 +141,15 @@ export interface AppInstellingen {
 
 export const REGELS_PREFIX = '__REGELS__';
 export const GEMINI_PREFIX = '__GEMINI__';
+export const BOETEPOT_PREFIX = '__BOETEPOT__';
+
+export function extractBoetepotBasis(categorieen: Boetecategorie[]): { basis: number; vanafWeek: string | null } {
+  const cat = categorieen.find(c => c.naam.startsWith(BOETEPOT_PREFIX));
+  if (!cat) return { basis: 0, vanafWeek: null };
+  const payload = cat.naam.slice(BOETEPOT_PREFIX.length);
+  const [basisStr, vanafWeek] = payload.split('|');
+  return { basis: parseInt(basisStr, 10) || 0, vanafWeek: vanafWeek || null };
+}
 
 export function extractRegelsTekst(categorieen: Boetecategorie[]): string {
   const cat = categorieen.find(c => c.naam.startsWith(REGELS_PREFIX));
