@@ -448,25 +448,6 @@ function PersoonlijkeBetalingTab({ profile, weken, instellingen, isHoofdbeheerde
 
   return (
     <div className="space-y-5">
-      {/* Betaallink banner - visible to ALL users when active */}
-      {showLink && (
-        <a
-          href={betaalUrl!}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-3 bg-green-600 text-white rounded-2xl px-4 py-4 shadow-md shadow-green-100 hover:bg-green-700 active:bg-green-800 transition-colors"
-        >
-          <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center flex-shrink-0">
-            <Link2 className="w-5 h-5" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-bold text-sm">Betaalverzoek openen</p>
-            <p className="text-xs text-green-100">Tik hier om te betalen voor deze week</p>
-          </div>
-          <ArrowUpRight className="w-5 h-5 flex-shrink-0" />
-        </a>
-      )}
-
       {/* Personal boete overview */}
       {spelerId ? (
         <div className="space-y-3">

@@ -77,6 +77,13 @@ function StatistiekenContent() {
       totals[s.speler_id].rode_kaarten += s.rode_kaarten;
       totals[s.speler_id].eigen_goals += s.eigen_goals;
     }
+    // Remove entries where all stats are 0
+    for (const id of Object.keys(totals)) {
+      const t = totals[id];
+      if (t.goals === 0 && t.assists === 0 && t.gele_kaarten === 0 && t.rode_kaarten === 0 && t.eigen_goals === 0) {
+        delete totals[id];
+      }
+    }
     setTotaalStats(totals);
   }
 
@@ -129,6 +136,34 @@ function StatistiekenContent() {
   const updateStat = useCallback(async (wedstrijdId: string, spelerId: string, field: keyof WedstrijdSpelerStats, value: number) => {
     const existing = wedstrijden.find(w => w.id === wedstrijdId)?.stats?.find(s => s.speler_id === spelerId);
 
+    // Compute what the new row would look like
+    const updatedRow = existing ? { ...existing, [field]: value } : null;
+    const allZero = updatedRow
+      ? updatedRow.goals === 0 && updatedRow.assists === 0 && updatedRow.gele_kaarten === 0 && updatedRow.rode_kaarten === 0 && updatedRow.eigen_goals === 0
+      : value === 0;
+
+    if (existing && allZero) {
+      // Delete the row entirely — all stats back to 0
+      await supabase.from('wedstrijd_speler_stats').delete().eq('id', existing.id);
+      setWedstrijden(prev => prev.map(w => {
+        if (w.id !== wedstrijdId) return w;
+        return { ...w, stats: (w.stats ?? []).filter(s => s.speler_id !== spelerId) };
+      }));
+      setTotaalStats(prev => {
+        const cur = prev[spelerId] ?? { goals: 0, assists: 0, gele_kaarten: 0, rode_kaarten: 0, eigen_goals: 0 };
+        const oldVal = existing[field] as number;
+        const fieldName = field as keyof typeof cur;
+        const newTotals = { ...cur, [fieldName]: (cur[fieldName] as number) - oldVal };
+        if (newTotals.goals === 0 && newTotals.assists === 0 && newTotals.gele_kaarten === 0 && newTotals.rode_kaarten === 0 && newTotals.eigen_goals === 0) {
+          const copy = { ...prev };
+          delete copy[spelerId];
+          return copy;
+        }
+        return { ...prev, [spelerId]: newTotals };
+      });
+      return;
+    }
+
     if (existing) {
       await supabase.from('wedstrijd_speler_stats').update({ [field]: value }).eq('id', existing.id);
     } else {
@@ -142,7 +177,6 @@ function StatistiekenContent() {
           if (w.id !== wedstrijdId) return w;
           return { ...w, stats: [...(w.stats ?? []), data] };
         }));
-        // Update totaal
         setTotaalStats(prev => {
           const cur = prev[spelerId] ?? { goals: 0, assists: 0, gele_kaarten: 0, rode_kaarten: 0, eigen_goals: 0 };
           const fieldName = field as keyof typeof cur;
@@ -166,7 +200,13 @@ function StatistiekenContent() {
       const cur = prev[spelerId] ?? { goals: 0, assists: 0, gele_kaarten: 0, rode_kaarten: 0, eigen_goals: 0 };
       const oldVal = existing ? (existing[field] as number) : 0;
       const fieldName = field as keyof typeof cur;
-      return { ...prev, [spelerId]: { ...cur, [fieldName]: (cur[fieldName] as number) - oldVal + value } };
+      const newTotals = { ...cur, [fieldName]: (cur[fieldName] as number) - oldVal + value };
+      if (newTotals.goals === 0 && newTotals.assists === 0 && newTotals.gele_kaarten === 0 && newTotals.rode_kaarten === 0 && newTotals.eigen_goals === 0) {
+        const copy = { ...prev };
+        delete copy[spelerId];
+        return copy;
+      }
+      return { ...prev, [spelerId]: newTotals };
     });
   }, [wedstrijden]);
 
