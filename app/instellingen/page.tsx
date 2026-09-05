@@ -5,7 +5,7 @@ import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { supabase, Speler, Boetecategorie, Profile, NaamAlias, AppInstellingen, formatBedrag, REGELS_PREFIX, extractRegelsTekst, GEMINI_PREFIX, extractGeminiKey } from '@/lib/supabase';
-import { Settings, Plus, Trash2, Pencil, X, Check, Users, Tag, Zap, Lock, Euro, Shield, UserCheck, AlertCircle, Mail, UserCircle, TrendingUp, FileText, Key, MoreHorizontal } from 'lucide-react';
+import { Settings, Plus, Trash2, Pencil, X, Check, Users, Tag, Zap, Lock, Euro, Shield, UserCheck, AlertCircle, Mail, UserCircle, TrendingUp, FileText, Key, MoreHorizontal, ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function InstellingenPage() {
   return (
@@ -471,6 +471,7 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
   const [newOpenBedrag, setNewOpenBedrag] = useState(false);
   const [newIsTeam, setNewIsTeam] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedCatId, setExpandedCatId] = useState<string | null>(null);
   const [editNaam, setEditNaam] = useState('');
   const [editTitel, setEditTitel] = useState('');
   const [editBedrag, setEditBedrag] = useState('');
@@ -572,6 +573,7 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
     const Icon = isTeam ? Shield : Tag;
     const displayTitel = cat.titel || cat.naam;
     const hasDescription = cat.titel && cat.titel !== cat.naam;
+    const isExpanded = expandedCatId === cat.id;
 
     return (
       <div key={cat.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -582,8 +584,8 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
               <input type="text" value={editTitel} onChange={e => setEditTitel(e.target.value)} autoFocus placeholder="bijv. Te laat" className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Omschrijving</label>
-              <input type="text" value={editNaam} onChange={e => setEditNaam(e.target.value)} placeholder="bijv. Te laat komen bij de aftrap" className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Omschrijving</label>
+              <input type="text" value={editNaam} onChange={e => setEditNaam(e.target.value)} placeholder="bijv. Te laat komen bij de aftrap" className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Bedrag (EUR)</label>
@@ -612,12 +614,16 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
                   {cat.verdubbelbaar && <span className="text-xs bg-orange-100 text-orange-600 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 flex-shrink-0"><Zap className="w-2.5 h-2.5" />x2</span>}
                   {cat.open_bedrag && <span className="text-xs bg-green-100 text-green-600 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 flex-shrink-0"><Euro className="w-2.5 h-2.5" />Open</span>}
                 </div>
-                {hasDescription ? (
-                  <p className="text-xs text-gray-400 mt-0.5">{cat.naam}</p>
-                ) : (
-                  <p className="text-xs text-gray-400 mt-0.5">{cat.open_bedrag ? 'Bedrag wordt ingevuld bij activiteit' : `${formatBedrag(cat.bedrag)} per stuk`}</p>
-                )}
+                <p className="text-xs text-gray-400 mt-0.5">{cat.open_bedrag ? 'Bedrag wordt ingevuld bij activiteit' : `${formatBedrag(cat.bedrag)} per stuk`}</p>
               </div>
+              {hasDescription && (
+                <button
+                  onClick={() => setExpandedCatId(isExpanded ? null : cat.id)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors flex-shrink-0"
+                >
+                  {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+              )}
               {isHoofdbeheerder && (
                 <>
                   <button onClick={() => startEdit(cat)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
@@ -629,6 +635,14 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
                 </>
               )}
             </div>
+            {hasDescription && isExpanded && (
+              <div className="px-4 pb-3 -mt-1">
+                <div className="ml-12 bg-gray-50 rounded-xl px-3 py-2">
+                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wider mb-0.5">Omschrijving</p>
+                  <p className="text-sm text-gray-700">{cat.naam}</p>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -646,8 +660,8 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
               <input type="text" value={newTitel} onChange={e => setNewTitel(e.target.value)} placeholder="bijv. Te laat" autoFocus className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Omschrijving</label>
-              <input type="text" value={newNaam} onChange={e => setNewNaam(e.target.value)} placeholder="bijv. Te laat komen bij de aftrap" className="w-full px-4 py-2.5 rounded-xl border border-gray-200 text-xs text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Omschrijving</label>
+              <input type="text" value={newNaam} onChange={e => setNewNaam(e.target.value)} placeholder="bijv. Te laat komen bij de aftrap" className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Bedrag (EUR)</label>
