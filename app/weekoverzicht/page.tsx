@@ -590,16 +590,14 @@ function AlleBoetesTab() {
 
   return (
     <div className="space-y-3">
-      {podiumSpelers.length > 0 && <FinePodium spelers={podiumSpelers} />}
-      <div className="bg-blue-600 text-white rounded-2xl p-5 flex items-center gap-4">
-        <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-          <ListOrdered className="w-6 h-6" />
+      <div className="bg-blue-50 rounded-2xl border border-blue-100 px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <ListOrdered className="w-4 h-4 text-blue-600" />
+          <p className="text-sm font-semibold text-gray-900">Totaal alle boetes</p>
         </div>
-        <div>
-          <p className="text-blue-200 text-sm font-medium">Totaal alle boetes</p>
-          <p className="text-3xl font-bold">{formatBedrag(grandTotal)}</p>
-        </div>
+        <span className="text-base font-bold text-blue-700">{formatBedrag(grandTotal)}</span>
       </div>
+      {podiumSpelers.length > 0 && <FinePodium spelers={podiumSpelers} />}
 
       {weken.map(week => (
         <div key={week.weekKey} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">

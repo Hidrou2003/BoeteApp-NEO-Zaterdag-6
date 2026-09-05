@@ -690,36 +690,24 @@ function BoeteWeekTab({ weken, expandedWeek, setExpandedWeek, isBeheerder, editi
   }
   const podiumSpelers = Array.from(podiumMap.values()).sort((a, b) => b.totaal - a.totaal).slice(0, 3);
 
-  // Total of all boetes across all weeks
-  const totaalAlleBoetes = weken.reduce((sum, w) => sum + w.weekTotaal, 0);
-
   return (
     <div className="space-y-3">
-      {/* Totaal alle boetes banner */}
-      <div className="bg-blue-50 rounded-2xl border border-blue-100 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <BarChart3 className="w-4 h-4 text-blue-600" />
-          <p className="text-sm font-semibold text-gray-900">Totaal alle boetes</p>
-        </div>
-        <span className="text-base font-bold text-blue-700">{formatBedrag(totaalAlleBoetes)}</span>
-      </div>
-
       {/* Boetepot totaal banner — editable by hoofdbeheerder */}
-      <div className="bg-green-50 rounded-2xl border border-green-100 px-4 py-3">
+      <div className="bg-blue-50 rounded-2xl border border-blue-100 px-4 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Wallet className="w-4 h-4 text-green-600" />
+            <Wallet className="w-4 h-4 text-blue-600" />
             <p className="text-sm font-semibold text-gray-900">Boetepot totaal</p>
           </div>
           {isHoofdbeheerder && !editingBoetepot && (
             <button
               onClick={() => { setBoetepotInput((boetepotBasis / 100).toFixed(2).replace('.', ',')); setEditingBoetepot(true); }}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-100 transition-colors"
+              className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-100 transition-colors"
             >
               <Pencil className="w-3.5 h-3.5" />
             </button>
           )}
-          <span className="text-base font-bold text-green-700">{formatBedrag(boetepotTotaal)}</span>
+          <span className="text-base font-bold text-blue-700">{formatBedrag(boetepotTotaal)}</span>
         </div>
         {editingBoetepot && (
           <div className="mt-3 flex items-center gap-2">
@@ -730,11 +718,11 @@ function BoeteWeekTab({ weken, expandedWeek, setExpandedWeek, isBeheerder, editi
               onChange={e => setBoetepotInput(e.target.value)}
               placeholder="bijv. 300,00"
               autoFocus
-              className="w-28 px-2 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-28 px-2 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <button
               onClick={onSaveBoetepotBasis}
-              className="px-2 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700"
+              className="px-2 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700"
             >
               Opslaan
             </button>
