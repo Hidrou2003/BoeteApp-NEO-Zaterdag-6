@@ -5,7 +5,7 @@ import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { supabase, Speler, Boetecategorie, Profile, NaamAlias, AppInstellingen, formatBedrag, REGELS_PREFIX, extractRegelsTekst, GEMINI_PREFIX, extractGeminiKey } from '@/lib/supabase';
-import { Settings, Plus, Trash2, Pencil, X, Check, Users, Tag, Zap, Lock, Euro, Shield, UserCheck, AlertCircle, Mail, UserCircle, TrendingUp, FileText, Key, MoreHorizontal } from 'lucide-react';
+import { Settings, Plus, Trash2, Pencil, X, Check, Users, Tag, Zap, Lock, Euro, Shield, UserCheck, AlertCircle, Mail, UserCircle, TrendingUp, FileText, Key, MoreHorizontal, ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function InstellingenPage() {
   return (
@@ -457,6 +457,7 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
   const [newOpenBedrag, setNewOpenBedrag] = useState(false);
   const [newIsTeam, setNewIsTeam] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedCatId, setExpandedCatId] = useState<string | null>(null);
   const [editNaam, setEditNaam] = useState('');
   const [editTitel, setEditTitel] = useState('');
   const [editBedrag, setEditBedrag] = useState('');
@@ -556,6 +557,9 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
     const iconBg = isTeam ? 'bg-purple-100' : 'bg-blue-100';
     const iconColor = isTeam ? 'text-purple-600' : 'text-blue-600';
     const Icon = isTeam ? Shield : Tag;
+    const displayTitel = cat.titel || cat.naam;
+    const hasDescription = cat.titel && cat.titel !== cat.naam;
+    const isExpanded = expandedCatId === cat.id;
 
     return (
       <div key={cat.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
@@ -585,28 +589,45 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
             </div>
           </div>
         ) : (
-          <div className="flex items-center gap-3 px-4 py-3.5">
-            <div className={`w-9 h-9 ${iconBg} rounded-xl flex items-center justify-center flex-shrink-0`}>
-              <Icon className={`w-4 h-4 ${iconColor}`} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-semibold text-gray-800">{cat.naam}</p>
-                {cat.titel && <span className="text-xs bg-blue-50 text-blue-600 font-medium px-1.5 py-0.5 rounded">{cat.titel}</span>}
-                {cat.verdubbelbaar && <span className="text-xs bg-orange-100 text-orange-600 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 flex-shrink-0"><Zap className="w-2.5 h-2.5" />x2</span>}
-                {cat.open_bedrag && <span className="text-xs bg-green-100 text-green-600 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 flex-shrink-0"><Euro className="w-2.5 h-2.5" />Open</span>}
+          <div>
+            <div className="flex items-center gap-3 px-4 py-3.5">
+              <div className={`w-9 h-9 ${iconBg} rounded-xl flex items-center justify-center flex-shrink-0`}>
+                <Icon className={`w-4 h-4 ${iconColor}`} />
               </div>
-              <p className="text-xs text-gray-400">{cat.open_bedrag ? 'Bedrag wordt ingevuld bij activiteit' : `${formatBedrag(cat.bedrag)} per stuk`}</p>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-gray-800">{displayTitel}</p>
+                  {cat.verdubbelbaar && <span className="text-xs bg-orange-100 text-orange-600 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 flex-shrink-0"><Zap className="w-2.5 h-2.5" />x2</span>}
+                  {cat.open_bedrag && <span className="text-xs bg-green-100 text-green-600 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 flex-shrink-0"><Euro className="w-2.5 h-2.5" />Open</span>}
+                </div>
+                <p className="text-xs text-gray-400">{cat.open_bedrag ? 'Bedrag wordt ingevuld bij activiteit' : `${formatBedrag(cat.bedrag)} per stuk`}</p>
+              </div>
+              {hasDescription && (
+                <button
+                  onClick={() => setExpandedCatId(isExpanded ? null : cat.id)}
+                  className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors flex-shrink-0"
+                >
+                  {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+              )}
+              {isHoofdbeheerder && (
+                <>
+                  <button onClick={() => startEdit(cat)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => handleDelete(cat.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </>
+              )}
             </div>
-            {isHoofdbeheerder && (
-              <>
-                <button onClick={() => startEdit(cat)} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
-                  <Pencil className="w-3.5 h-3.5" />
-                </button>
-                <button onClick={() => handleDelete(cat.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              </>
+            {hasDescription && isExpanded && (
+              <div className="px-4 pb-3 -mt-1">
+                <div className="ml-12 bg-gray-50 rounded-xl px-3 py-2">
+                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wider mb-0.5">Omschrijving</p>
+                  <p className="text-sm text-gray-700">{cat.naam}</p>
+                </div>
+              </div>
             )}
           </div>
         )}
