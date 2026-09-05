@@ -116,7 +116,7 @@ export interface OverigeBoete {
   spelers?: Speler;
 }
 
-export type BetaalStatus = 'betaald' | 'te_laag_betaald' | 'niet_betaald' | 'te_weinig_betaald' | 'niet_gedeeld' | null;
+export type BetaalStatus = 'betaald' | 'te_laag_betaald' | 'niet_betaald' | 'te_weinig_betaald' | 'niet_gedeeld' | 'te_veel_betaald' | null;
 
 export interface Betaling {
   id: string;

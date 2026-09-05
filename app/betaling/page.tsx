@@ -109,6 +109,8 @@ function BetalingContent() {
   const [expandedWeek, setExpandedWeek] = useState<string | null>(null);
   const [editingTeWeinig, setEditingTeWeinig] = useState<string | null>(null);
   const [teWeinigValue, setTeWeinigValue] = useState('');
+  const [editingTeVeel, setEditingTeVeel] = useState<string | null>(null);
+  const [teVeelValue, setTeVeelValue] = useState('');
   const [screenshots, setScreenshots] = useState<BankScreenshot[]>([]);
   const [allSpelers, setAllSpelers] = useState<Speler[]>([]);
   const [instellingen, setInstellingen] = useState<AppInstellingen | null>(null);
@@ -251,14 +253,29 @@ function BetalingContent() {
     }
 
     const teWeinig = status === 'te_weinig_betaald' ? (existing?.te_weinig_bedrag ?? 0) : 0;
+    const teVeel = status === 'te_veel_betaald' ? (existing?.te_weinig_bedrag ?? 0) : 0;
 
     await supabase.from('betalingen').upsert({
       speler_id: spelerId,
       week_key: weekKey,
       betaal_status: status,
-      te_weinig_bedrag: teWeinig,
+      te_weinig_bedrag: status === 'te_weinig_betaald' ? (existing?.te_weinig_bedrag ?? 0) : teVeel,
     }, { onConflict: 'speler_id,week_key' });
 
+    load();
+  }
+
+  async function saveTeVeel(weekKey: string, spelerId: string) {
+    if (!isHoofdbeheerder) return;
+    const bedrag = Math.round(parseFloat(teVeelValue.replace(',', '.')) * 100) || 0;
+    await supabase.from('betalingen').upsert({
+      speler_id: spelerId,
+      week_key: weekKey,
+      betaal_status: 'te_veel_betaald',
+      te_weinig_bedrag: bedrag,
+    }, { onConflict: 'speler_id,week_key' });
+    setEditingTeVeel(null);
+    setTeVeelValue('');
     load();
   }
 
@@ -310,6 +327,7 @@ function BetalingContent() {
 
   const statusLabels: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
     betaald: { label: 'Betaald', color: 'bg-green-100 text-green-700', icon: <Check className="w-3 h-3" /> },
+    te_veel_betaald: { label: 'Te veel betaald', color: 'bg-green-100 text-green-700', icon: <Check className="w-3 h-3" /> },
     te_laag_betaald: { label: 'Te laat betaald', color: 'bg-orange-100 text-orange-700', icon: <Clock className="w-3 h-3" /> },
     niet_betaald: { label: 'Niet betaald', color: 'bg-red-100 text-red-700', icon: <X className="w-3 h-3" /> },
     te_weinig_betaald: { label: 'Te weinig betaald', color: 'bg-amber-100 text-amber-700', icon: <AlertCircle className="w-3 h-3" /> },
@@ -366,8 +384,13 @@ function BetalingContent() {
               setEditingTeWeinig={setEditingTeWeinig}
               teWeinigValue={teWeinigValue}
               setTeWeinigValue={setTeWeinigValue}
+              editingTeVeel={editingTeVeel}
+              setEditingTeVeel={setEditingTeVeel}
+              teVeelValue={teVeelValue}
+              setTeVeelValue={setTeVeelValue}
               setBetaalStatus={setBetaalStatus}
               saveTeWeinig={saveTeWeinig}
+              saveTeVeel={saveTeVeel}
               statusLabels={statusLabels}
               onSetWeekNietGedeeld={setWeekNietGedeeld}
             />
@@ -396,6 +419,7 @@ function TabButton({ active, onClick, icon, label }: { active: boolean; onClick:
 
 const statusLabelsGlobal: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   betaald: { label: 'Betaald', color: 'bg-green-100 text-green-700', icon: <Check className="w-3 h-3" /> },
+  te_veel_betaald: { label: 'Te veel betaald', color: 'bg-green-100 text-green-700', icon: <Check className="w-3 h-3" /> },
   te_laag_betaald: { label: 'Te laat betaald', color: 'bg-orange-100 text-orange-700', icon: <Clock className="w-3 h-3" /> },
   niet_betaald: { label: 'Niet betaald', color: 'bg-red-100 text-red-700', icon: <X className="w-3 h-3" /> },
   te_weinig_betaald: { label: 'Te weinig betaald', color: 'bg-amber-100 text-amber-700', icon: <AlertCircle className="w-3 h-3" /> },
@@ -496,11 +520,16 @@ function PersoonlijkeBetalingTab({ profile, weken, instellingen, isHoofdbeheerde
                       </div>
                     </div>
                     {statusInfo && (
-                      <div className="mt-2">
+                      <div className="mt-2 flex items-center gap-2">
                         <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium ${statusInfo.color}`}>
                           {statusInfo.icon}
                           {statusInfo.label}
                         </span>
+                        {status === 'te_veel_betaald' && myEntry.betaling?.te_weinig_bedrag ? (
+                          <span className="text-xs text-green-600 font-medium">
+                            {formatBedrag(myEntry.betaling.te_weinig_bedrag)} teveel betaald
+                          </span>
+                        ) : null}
                       </div>
                     )}
                   </div>
@@ -603,7 +632,7 @@ function PersoonlijkeBetalingTab({ profile, weken, instellingen, isHoofdbeheerde
 // ============================================================
 // BOETE WEEK TAB - overview per player + beheerder payment controls
 // ============================================================
-function BoeteWeekTab({ weken, expandedWeek, setExpandedWeek, isBeheerder, editingTeWeinig, setEditingTeWeinig, teWeinigValue, setTeWeinigValue, setBetaalStatus, saveTeWeinig, statusLabels, onSetWeekNietGedeeld }: {
+function BoeteWeekTab({ weken, expandedWeek, setExpandedWeek, isBeheerder, editingTeWeinig, setEditingTeWeinig, teWeinigValue, setTeWeinigValue, editingTeVeel, setEditingTeVeel, teVeelValue, setTeVeelValue, setBetaalStatus, saveTeWeinig, saveTeVeel, statusLabels, onSetWeekNietGedeeld }: {
   weken: BetalingWeekData[];
   expandedWeek: string | null;
   setExpandedWeek: (k: string | null) => void;
@@ -612,15 +641,22 @@ function BoeteWeekTab({ weken, expandedWeek, setExpandedWeek, isBeheerder, editi
   setEditingTeWeinig: (k: string | null) => void;
   teWeinigValue: string;
   setTeWeinigValue: (v: string) => void;
+  editingTeVeel: string | null;
+  setEditingTeVeel: (k: string | null) => void;
+  teVeelValue: string;
+  setTeVeelValue: (v: string) => void;
   setBetaalStatus: (weekKey: string, spelerId: string, status: BetaalStatus) => void;
   saveTeWeinig: (weekKey: string, spelerId: string) => void;
+  saveTeVeel: (weekKey: string, spelerId: string) => void;
   statusLabels: Record<string, { label: string; color: string; icon: React.ReactNode }>;
   onSetWeekNietGedeeld: (weekKey: string) => void;
 }) {
-  // Build top 3 betalingen podium across all visible weeks
+  // Build top 3 betalingen podium — only count weeks actually paid (betaald or te_veel_betaald)
   const podiumMap = new Map<string, { speler: Speler; totaal: number }>();
   for (const w of weken) {
     for (const s of w.spelers) {
+      const status = s.betaling?.betaal_status;
+      if (status !== 'betaald' && status !== 'te_veel_betaald') continue;
       const cur = podiumMap.get(s.speler.id);
       if (cur) cur.totaal += s.teBetalen;
       else podiumMap.set(s.speler.id, { speler: s.speler, totaal: s.teBetalen });
@@ -628,8 +664,26 @@ function BoeteWeekTab({ weken, expandedWeek, setExpandedWeek, isBeheerder, editi
   }
   const podiumSpelers = Array.from(podiumMap.values()).sort((a, b) => b.totaal - a.totaal).slice(0, 3);
 
+  // Total actually paid across all weeks
+  const totaalBetaald = weken.reduce((sum, w) => {
+    return sum + w.spelers.reduce((s2, sp) => {
+      const st = sp.betaling?.betaal_status;
+      return (st === 'betaald' || st === 'te_veel_betaald') ? s2 + sp.teBetalen : s2;
+    }, 0);
+  }, 0);
+
   return (
     <div className="space-y-3">
+      {/* Total paid banner */}
+      {totaalBetaald > 0 && (
+        <div className="bg-blue-50 rounded-2xl border border-blue-100 px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Check className="w-4 h-4 text-blue-600" />
+            <p className="text-sm font-semibold text-gray-900">Totaal betaald</p>
+          </div>
+          <span className="text-base font-bold text-blue-700">{formatBedrag(totaalBetaald)}</span>
+        </div>
+      )}
       {podiumSpelers.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
           <div className="flex items-center gap-2 mb-3">
@@ -786,6 +840,47 @@ function BoeteWeekTab({ weken, expandedWeek, setExpandedWeek, isBeheerder, editi
                                   {s.betaling?.te_weinig_bedrag
                                     ? `Te weinig: ${formatBedrag(s.betaling.te_weinig_bedrag)} (klik om te wijzigen)`
                                     : 'Vul te weinig bedrag in'}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          {status === 'te_veel_betaald' && (
+                            <div className="flex items-center gap-2">
+                              {editingTeVeel === editKey ? (
+                                <>
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={teVeelValue}
+                                    onChange={e => setTeVeelValue(e.target.value)}
+                                    placeholder="bijv. 1,50"
+                                    autoFocus
+                                    className="w-24 px-2 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  />
+                                  <button
+                                    onClick={() => saveTeVeel(week.weekKey, s.speler.id)}
+                                    className="px-2 py-1.5 bg-green-600 text-white rounded-lg text-xs font-medium hover:bg-green-700"
+                                  >
+                                    Opslaan
+                                  </button>
+                                  <button
+                                    onClick={() => { setEditingTeVeel(null); setTeVeelValue(''); }}
+                                    className="px-2 py-1.5 bg-gray-100 text-gray-500 rounded-lg text-xs font-medium hover:bg-gray-200"
+                                  >
+                                    Annuleren
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    setEditingTeVeel(editKey);
+                                    setTeVeelValue(s.betaling?.te_weinig_bedrag ? ((s.betaling.te_weinig_bedrag / 100).toFixed(2).replace('.', ',')) : '');
+                                  }}
+                                  className="text-xs text-green-600 font-medium hover:text-green-800"
+                                >
+                                  {s.betaling?.te_weinig_bedrag
+                                    ? `Te veel betaald: ${formatBedrag(s.betaling.te_weinig_bedrag)} (klik om te wijzigen)`
+                                    : 'Vul te veel betaald bedrag in'}
                                 </button>
                               )}
                             </div>
