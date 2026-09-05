@@ -397,15 +397,19 @@ function SpelerEditContent() {
                     <div key={cat.id} className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-gray-800">{cat.naam}</p>
+                          <p className="text-sm font-medium text-gray-800">{cat.titel || cat.naam}</p>
                           {isDoubled && !cat.open_bedrag && <span className="text-xs bg-orange-100 text-orange-600 font-semibold px-1 py-0.5 rounded">x{isDubbel && cat.verdubbelbaar && isDubbeleMaand ? 4 : 2}</span>}
                           {cat.open_bedrag && <span className="text-xs bg-green-100 text-green-600 font-semibold px-1 py-0.5 rounded flex items-center gap-0.5"><Euro className="w-2.5 h-2.5" />Open</span>}
                         </div>
-                        <p className="text-xs text-gray-400">
-                          {cat.open_bedrag
-                            ? aantal > 0 ? `${formatBedrag(bedrag)} per stuk` : 'Bedrag invullen bij aantal'
-                            : `${formatBedrag(fixedBedrag)} p.st.`}
-                        </p>
+                        {cat.titel && cat.titel !== cat.naam ? (
+                          <p className="text-xs text-gray-400">{cat.naam}</p>
+                        ) : (
+                          <p className="text-xs text-gray-400">
+                            {cat.open_bedrag
+                              ? aantal > 0 ? `${formatBedrag(bedrag)} per stuk` : 'Bedrag invullen bij aantal'
+                              : `${formatBedrag(fixedBedrag)} p.st.`}
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
                         {aantal > 0 && <span className="text-xs font-bold text-blue-700">{formatBedrag(aantal * bedrag)}</span>}
@@ -450,15 +454,19 @@ function SpelerEditContent() {
                     <div key={cat.id} className="flex items-center justify-between bg-gray-50 rounded-xl px-4 py-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-gray-800">{cat.naam}</p>
+                          <p className="text-sm font-medium text-gray-800">{cat.titel || cat.naam}</p>
                           {isDoubled && !cat.open_bedrag && <span className="text-xs bg-orange-100 text-orange-600 font-semibold px-1 py-0.5 rounded">x{isDubbel && cat.verdubbelbaar && isDubbeleMaand ? 4 : 2}</span>}
                           {cat.open_bedrag && <span className="text-xs bg-green-100 text-green-600 font-semibold px-1 py-0.5 rounded flex items-center gap-0.5"><Euro className="w-2.5 h-2.5" />Open</span>}
                         </div>
-                        <p className="text-xs text-gray-400">
-                          {cat.open_bedrag
-                            ? aantal > 0 ? `${formatBedrag(bedrag)} per stuk` : 'Bedrag invullen bij aantal'
-                            : `${formatBedrag(fixedBedrag)} p.st.`}
-                        </p>
+                        {cat.titel && cat.titel !== cat.naam ? (
+                          <p className="text-xs text-gray-400">{cat.naam}</p>
+                        ) : (
+                          <p className="text-xs text-gray-400">
+                            {cat.open_bedrag
+                              ? aantal > 0 ? `${formatBedrag(bedrag)} per stuk` : 'Bedrag invullen bij aantal'
+                              : `${formatBedrag(fixedBedrag)} p.st.`}
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
                         {aantal > 0 && <span className="text-xs font-bold text-blue-700">{formatBedrag(aantal * bedrag)}</span>}

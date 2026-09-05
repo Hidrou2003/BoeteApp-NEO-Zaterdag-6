@@ -186,7 +186,7 @@ function OverzichtContent() {
                 <div className="border-t border-gray-50 px-4 py-3 space-y-1.5 bg-gray-50">
                   {items.length > 0 && items.map(item => (
                     <div key={item.id} className="flex justify-between text-xs">
-                      <span className="text-gray-600">{item.aantal}x {item.boetecategorieen?.naam}</span>
+                      <span className="text-gray-600">{item.aantal}x {item.boetecategorieen?.titel || item.boetecategorieen?.naam}</span>
                       <span className="font-semibold text-gray-800">{formatBedrag(item.subtotaal)}</span>
                     </div>
                   ))}

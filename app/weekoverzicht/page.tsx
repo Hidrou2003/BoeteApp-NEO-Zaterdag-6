@@ -283,7 +283,7 @@ function MijnBoeteTab({ profile }: { profile: Profile | null }) {
       }
       const wd = weekMap.get(weekKey)!;
       const items = (as.boete_items ?? []).map((bi: any) => ({
-        naam: bi.boetecategorieen?.naam ?? 'Onbekend',
+        naam: bi.boetecategorieen?.titel ?? bi.boetecategorieen?.naam ?? 'Onbekend',
         aantal: bi.aantal,
         subtotaal: bi.subtotaal,
       }));
@@ -512,7 +512,7 @@ function AlleBoetesTab() {
         wd.spelers.push(spelerEntry);
       }
       const items = (as.boete_items ?? []).map((bi: any) => ({
-        naam: bi.boetecategorieen?.naam ?? 'Onbekend',
+        naam: bi.boetecategorieen?.titel ?? bi.boetecategorieen?.naam ?? 'Onbekend',
         aantal: bi.aantal,
         subtotaal: bi.subtotaal,
       }));
