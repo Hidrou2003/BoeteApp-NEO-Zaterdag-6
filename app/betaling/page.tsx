@@ -5,7 +5,7 @@ import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { supabase, Speler, Betaling, BetaalStatus, BankScreenshot, formatBedrag, AppInstellingen } from '@/lib/supabase';
-import { CreditCard, ChevronDown, ChevronUp, User, Check, Clock, X, AlertCircle, Wallet, Link2, Camera, Pencil, ArrowUpRight, BarChart3 } from 'lucide-react';
+import { CreditCard, ChevronDown, ChevronUp, User, Check, Clock, X, AlertCircle, Wallet, Link2, Camera, Pencil, ArrowUpRight, BarChart3, Trophy } from 'lucide-react';
 import AfgerondTab from './AfgerondTab';
 import { format, parseISO, getISOWeek, getISOWeekYear } from 'date-fns';
 import { nl } from 'date-fns/locale';
@@ -103,7 +103,7 @@ export default function BetalingPage() {
 
 function BetalingContent() {
   const { profile } = useAuth();
-  const [tab, setTab] = useState<'betaling' | 'boete-week' | 'betaald' | 'afgerond'>('betaling');
+  const [tab, setTab] = useState<'betaling' | 'boete-week' | 'afgerond'>('betaling');
   const [loading, setLoading] = useState(true);
   const [weken, setWeken] = useState<BetalingWeekData[]>([]);
   const [expandedWeek, setExpandedWeek] = useState<string | null>(null);
@@ -317,6 +317,7 @@ function BetalingContent() {
 
   const payableWeekKey = getPayableWeekKey();
   const visibleWeken = weken;
+  const betalingWeken = weken.filter(w => w.weekKey === payableWeekKey);
 
   return (
     <div className="space-y-5">
@@ -330,9 +331,6 @@ function BetalingContent() {
         <TabButton active={tab === 'betaling'} onClick={() => setTab('betaling')} icon={<Wallet className="w-4 h-4" />} label="Betaling" />
         <TabButton active={tab === 'boete-week'} onClick={() => setTab('boete-week')} icon={<BarChart3 className="w-4 h-4" />} label="Boete week" />
         {isHoofdbeheerder && (
-          <TabButton active={tab === 'betaald'} onClick={() => setTab('betaald')} icon={<CreditCard className="w-4 h-4" />} label="Betaald" />
-        )}
-        {isHoofdbeheerder && (
           <TabButton active={tab === 'afgerond'} onClick={() => setTab('afgerond')} icon={<Camera className="w-4 h-4" />} label="Afgerond" />
         )}
       </div>
@@ -344,15 +342,15 @@ function BetalingContent() {
       ) : visibleWeken.length === 0 ? (
         <div className="text-center py-16 text-gray-400">
           <CreditCard className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p className="font-medium">Nog geen betalingsgegevens</p>
-          <p className="text-xs mt-1">Betalingsgegevens zijn alleen zaterdag en zondag zichtbaar voor de huidige week.</p>
+          <p className="font-medium">Nog geen betalingsgegevens voor deze week</p>
+          <p className="text-xs mt-1">Betalingen zijn alleen zichtbaar voor de huidige week (zaterdag en zondag).</p>
         </div>
       ) : (
         <>
           {tab === 'betaling' ? (
             <PersoonlijkeBetalingTab
               profile={profile}
-              weken={visibleWeken}
+              weken={betalingWeken}
               instellingen={instellingen}
               isHoofdbeheerder={isHoofdbeheerder}
               onSaveBetaalUrl={saveBetaalUrl}
@@ -360,12 +358,6 @@ function BetalingContent() {
             />
           ) : tab === 'boete-week' ? (
             <BoeteWeekTab
-              weken={visibleWeken}
-              expandedWeek={expandedWeek}
-              setExpandedWeek={setExpandedWeek}
-            />
-          ) : tab === 'betaald' ? (
-            <BetaaldTab
               weken={visibleWeken}
               expandedWeek={expandedWeek}
               setExpandedWeek={setExpandedWeek}
@@ -628,98 +620,9 @@ function PersoonlijkeBetalingTab({ profile, weken, instellingen, isHoofdbeheerde
 }
 
 // ============================================================
-// BOETE WEEK TAB - read-only overview per player
+// BOETE WEEK TAB - overview per player + beheerder payment controls
 // ============================================================
-function BoeteWeekTab({ weken, expandedWeek, setExpandedWeek }: {
-  weken: BetalingWeekData[];
-  expandedWeek: string | null;
-  setExpandedWeek: (k: string | null) => void;
-}) {
-  const statusLabels: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-    betaald: { label: 'Betaald', color: 'bg-green-100 text-green-700', icon: <Check className="w-3 h-3" /> },
-    te_laag_betaald: { label: 'Te laat betaald', color: 'bg-orange-100 text-orange-700', icon: <Clock className="w-3 h-3" /> },
-    niet_betaald: { label: 'Niet betaald', color: 'bg-red-100 text-red-700', icon: <X className="w-3 h-3" /> },
-    te_weinig_betaald: { label: 'Te weinig betaald', color: 'bg-amber-100 text-amber-700', icon: <AlertCircle className="w-3 h-3" /> },
-    niet_gedeeld: { label: 'Niet gedeeld', color: 'bg-gray-200 text-gray-600', icon: <X className="w-3 h-3" /> },
-  };
-
-  return (
-    <div className="space-y-3">
-      {weken.map(week => {
-        return (
-        <div key={week.weekKey} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <button
-            onClick={() => setExpandedWeek(expandedWeek === week.weekKey ? null : week.weekKey)}
-            className="w-full flex items-center gap-4 px-4 py-4 text-left hover:bg-gray-50 transition-colors"
-          >
-            <div className="flex-1">
-              <p className="font-semibold text-gray-900 text-sm">{week.weekLabel}</p>
-              <p className="text-xs text-gray-400">{week.spelers.length} spelers</p>
-            </div>
-            <span className="text-base font-bold text-blue-700">{formatBedrag(week.weekTotaal)}</span>
-            {expandedWeek === week.weekKey ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
-          </button>
-
-          {expandedWeek === week.weekKey && (
-            <div className="border-t border-gray-50">
-              {week.spelers.map(s => (
-                <div key={s.speler.id} className="border-b border-gray-50 last:border-0 px-4 py-3">
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <User className="w-3.5 h-3.5 text-blue-600" />
-                    </div>
-                    <span className="flex-1 text-sm font-medium text-gray-800">{s.speler.naam}</span>
-                    <span className="text-sm font-bold text-blue-700">{formatBedrag(s.teBetalen)}</span>
-                  </div>
-
-                  <div className="ml-10 space-y-0.5">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-gray-500">Weekboetes</span>
-                      <span className="text-gray-600">{formatBedrag(s.baseFines)}</span>
-                    </div>
-                    {s.baseFines === 0 && s.adjustedFines === 200 && (
-                      <div className="flex justify-between text-xs">
-                        <span className="text-blue-500">0€ = 2€ regel</span>
-                        <span className="text-blue-600">+{formatBedrag(200)}</span>
-                      </div>
-                    )}
-                    {s.carryover > 0 && (
-                      <div className="flex justify-between text-xs">
-                        <span className="text-orange-500">{s.carryoverLabel}</span>
-                        <span className="text-orange-600">+{formatBedrag(s.carryover)}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between text-xs pt-0.5 border-t border-gray-100">
-                      <span className="font-bold text-gray-900">Te betalen</span>
-                      <span className="font-bold text-blue-700">{formatBedrag(s.teBetalen)}</span>
-                    </div>
-                    {s.betaling?.betaal_status && statusLabels[s.betaling.betaal_status] && (
-                      <div className="pt-1">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-medium ${statusLabels[s.betaling.betaal_status].color}`}>
-                          {statusLabels[s.betaling.betaal_status].icon}
-                          {statusLabels[s.betaling.betaal_status].label}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-              <div className="px-4 py-3 bg-blue-50 flex justify-between text-sm">
-                <span className="font-bold text-gray-900">Totaal {week.weekLabel}</span>
-                <span className="font-bold text-blue-700">{formatBedrag(week.weekTotaal)}</span>
-              </div>
-            </div>
-          )}
-        </div>
-      )})}
-    </div>
-  );
-}
-
-// ============================================================
-// BETAALD TAB - beheerder can set payment status
-// ============================================================
-function BetaaldTab({ weken, expandedWeek, setExpandedWeek, isBeheerder, editingTeWeinig, setEditingTeWeinig, teWeinigValue, setTeWeinigValue, setBetaalStatus, saveTeWeinig, statusLabels, onSetWeekNietGedeeld }: {
+function BoeteWeekTab({ weken, expandedWeek, setExpandedWeek, isBeheerder, editingTeWeinig, setEditingTeWeinig, teWeinigValue, setTeWeinigValue, setBetaalStatus, saveTeWeinig, statusLabels, onSetWeekNietGedeeld }: {
   weken: BetalingWeekData[];
   expandedWeek: string | null;
   setExpandedWeek: (k: string | null) => void;
@@ -733,8 +636,36 @@ function BetaaldTab({ weken, expandedWeek, setExpandedWeek, isBeheerder, editing
   statusLabels: Record<string, { label: string; color: string; icon: React.ReactNode }>;
   onSetWeekNietGedeeld: (weekKey: string) => void;
 }) {
+  // Build top 3 betalingen podium across all visible weeks
+  const podiumMap = new Map<string, { speler: Speler; totaal: number }>();
+  for (const w of weken) {
+    for (const s of w.spelers) {
+      const cur = podiumMap.get(s.speler.id);
+      if (cur) cur.totaal += s.teBetalen;
+      else podiumMap.set(s.speler.id, { speler: s.speler, totaal: s.teBetalen });
+    }
+  }
+  const podiumSpelers = Array.from(podiumMap.values()).sort((a, b) => b.totaal - a.totaal).slice(0, 3);
+
   return (
     <div className="space-y-3">
+      {podiumSpelers.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Trophy className="w-4 h-4 text-amber-500" />
+            <p className="text-sm font-semibold text-gray-900">Meeste betalingen</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 items-end">
+            {podiumSpelers.map((entry, index) => (
+              <div key={entry.speler.id} className={`text-center ${index === 0 ? 'order-2' : index === 1 ? 'order-1' : 'order-3'}`}>
+                <div className={`mx-auto mb-1 flex items-center justify-center rounded-full font-bold text-sm ${index === 0 ? 'w-10 h-10 bg-amber-100 text-amber-700' : 'w-8 h-8 bg-gray-100 text-gray-600'}`}>{index + 1}</div>
+                <p className="text-xs font-semibold text-gray-800 truncate">{entry.speler.naam}</p>
+                <p className="text-[11px] text-gray-400">{formatBedrag(entry.totaal)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {weken.map(week => {
         const incompleteCount = week.spelers.filter(s => !s.betaling?.betaal_status).length;
         const isNietGedeeld = week.spelers.length > 0 && week.spelers.every(s => s.betaling?.betaal_status === 'niet_gedeeld');
@@ -752,7 +683,7 @@ function BetaaldTab({ weken, expandedWeek, setExpandedWeek, isBeheerder, editing
                     Niet gedeeld
                   </span>
                 )}
-                {incompleteCount > 0 && !isNietGedeeld && (
+                {isBeheerder && incompleteCount > 0 && !isNietGedeeld && (
                   <span className="inline-flex items-center gap-0.5 text-xs text-amber-600 font-medium bg-amber-50 px-1.5 py-0.5 rounded-md">
                     <AlertCircle className="w-3 h-3" />
                     {incompleteCount} {incompleteCount === 1 ? 'speler' : 'spelers'} nog open

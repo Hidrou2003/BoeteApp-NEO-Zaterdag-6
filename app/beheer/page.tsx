@@ -45,7 +45,7 @@ function BeheerContent() {
   }, []);
 
   async function load() {
-    const { data } = await supabase.from('profiles').select('*').order('created_at');
+    const { data } = await supabase.from('profiles').select('*').order('naam');
     setUsers(data ?? []);
     setLoading(false);
   }

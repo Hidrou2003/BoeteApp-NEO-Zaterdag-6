@@ -53,6 +53,7 @@ export interface Speler {
 export interface Boetecategorie {
   id: string;
   naam: string;
+  titel?: string | null;
   bedrag: number; // in cents
   verdubbelbaar: boolean;
   open_bedrag: boolean;

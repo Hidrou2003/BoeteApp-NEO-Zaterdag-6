@@ -451,12 +451,14 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
 }) {
   const [adding, setAdding] = useState(false);
   const [newNaam, setNewNaam] = useState('');
+  const [newTitel, setNewTitel] = useState('');
   const [newBedrag, setNewBedrag] = useState('');
   const [newDubbel, setNewDubbel] = useState(false);
   const [newOpenBedrag, setNewOpenBedrag] = useState(false);
   const [newIsTeam, setNewIsTeam] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editNaam, setEditNaam] = useState('');
+  const [editTitel, setEditTitel] = useState('');
   const [editBedrag, setEditBedrag] = useState('');
   const [editDubbel, setEditDubbel] = useState(false);
   const [editOpenBedrag, setEditOpenBedrag] = useState(false);
@@ -477,13 +479,14 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
     const maxVolgorde = categorieen.reduce((max, c) => Math.max(max, c.volgorde), 0);
     await supabase.from('boetecategorieen').insert({
       naam: newNaam.trim(),
+      titel: newTitel.trim() || null,
       bedrag,
       verdubbelbaar: newDubbel,
       open_bedrag: newOpenBedrag,
       is_teamboete: newIsTeam,
       volgorde: maxVolgorde + 1,
     });
-    setNewNaam(''); setNewBedrag(''); setNewDubbel(false); setNewOpenBedrag(false); setNewIsTeam(false);
+    setNewNaam(''); setNewTitel(''); setNewBedrag(''); setNewDubbel(false); setNewOpenBedrag(false); setNewIsTeam(false);
     setAdding(false); setSaving(false);
     onChanged();
   }
@@ -499,6 +502,7 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
     const bedrag = Math.round(parseFloat(editBedrag.replace(',', '.')) * 100) || 0;
     await supabase.from('boetecategorieen').update({
       naam: editNaam.trim(),
+      titel: editTitel.trim() || null,
       bedrag,
       verdubbelbaar: editDubbel,
       open_bedrag: editOpenBedrag,
@@ -542,6 +546,7 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
   function startEdit(cat: Boetecategorie) {
     setEditingId(cat.id);
     setEditNaam(cat.naam);
+    setEditTitel(cat.titel ?? '');
     setEditBedrag((cat.bedrag / 100).toFixed(2).replace('.', ','));
     setEditDubbel(cat.verdubbelbaar);
     setEditOpenBedrag(cat.open_bedrag);
@@ -559,6 +564,10 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Naam (volledige omschrijving)</label>
               <input type="text" value={editNaam} onChange={e => setEditNaam(e.target.value)} autoFocus className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Titel (kort label bij activiteiten)</label>
+              <input type="text" value={editTitel} onChange={e => setEditTitel(e.target.value)} placeholder="bijv. Te laat" className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Bedrag (EUR)</label>
@@ -583,6 +592,7 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <p className="text-sm font-semibold text-gray-800">{cat.naam}</p>
+                {cat.titel && <span className="text-xs bg-blue-50 text-blue-600 font-medium px-1.5 py-0.5 rounded">{cat.titel}</span>}
                 {cat.verdubbelbaar && <span className="text-xs bg-orange-100 text-orange-600 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 flex-shrink-0"><Zap className="w-2.5 h-2.5" />x2</span>}
                 {cat.open_bedrag && <span className="text-xs bg-green-100 text-green-600 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5 flex-shrink-0"><Euro className="w-2.5 h-2.5" />Open</span>}
               </div>
@@ -613,6 +623,10 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Naam (volledige omschrijving)</label>
               <input type="text" value={newNaam} onChange={e => setNewNaam(e.target.value)} placeholder="bijv. Te laat komen" autoFocus className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Titel (kort label bij activiteiten)</label>
+              <input type="text" value={newTitel} onChange={e => setNewTitel(e.target.value)} placeholder="bijv. Te laat" className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent" />
             </div>
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Bedrag (EUR)</label>

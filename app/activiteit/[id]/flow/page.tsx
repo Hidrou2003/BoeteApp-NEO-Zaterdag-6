@@ -420,7 +420,7 @@ function FlowContent() {
                     <div className="flex items-center justify-between">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-medium text-gray-800">{tb.cat.naam}</p>
+                          <p className="text-sm font-medium text-gray-800">{tb.cat.titel || tb.cat.naam}</p>
                           {isDoubled && !tb.cat.open_bedrag && <span className="text-xs bg-orange-100 text-orange-600 font-semibold px-1 py-0.5 rounded">x{isDubbel && tb.cat.verdubbelbaar && isDubbeleMaand ? 4 : 2}</span>}
                           {tb.cat.open_bedrag && <span className="text-xs bg-green-100 text-green-600 font-semibold px-1 py-0.5 rounded flex items-center gap-0.5"><Euro className="w-2.5 h-2.5" />Open</span>}
                         </div>
@@ -563,7 +563,7 @@ function FlowContent() {
                       <div className="flex items-center justify-between">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <p className="text-sm font-medium text-gray-800">{cat.naam}</p>
+                            <p className="text-sm font-medium text-gray-800">{cat.titel || cat.naam}</p>
                             {isDoubled && !cat.open_bedrag && <span className="text-xs bg-orange-100 text-orange-600 font-semibold px-1 py-0.5 rounded">x{isDubbel && cat.verdubbelbaar && isDubbeleMaand ? 4 : 2}</span>}
                             {cat.open_bedrag && <span className="text-xs bg-green-100 text-green-600 font-semibold px-1 py-0.5 rounded flex items-center gap-0.5"><Euro className="w-2.5 h-2.5" />Open</span>}
                           </div>
