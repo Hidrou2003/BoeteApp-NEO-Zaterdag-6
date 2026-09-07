@@ -88,19 +88,20 @@ function StatistiekenContent() {
   }
 
   async function addWedstrijdWithStats(datum: string, tegenstander: string, locatie: string, stats: SpelerStatInput[]) {
-    const { data: wedstrijd } = await supabase.from('wedstrijden').insert({
+    const { data: wedstrijd, error: wedstrijdError } = await supabase.from('wedstrijden').insert({
       datum,
       tegenstander,
       locatie: locatie || null,
       gemaakt_door: profile?.id,
     }).select().single();
 
-    if (!wedstrijd) return;
+    if (wedstrijdError) throw new Error(wedstrijdError.message);
+    if (!wedstrijd) throw new Error('De wedstrijd kon niet worden opgeslagen.');
 
     const validStats = stats.filter(s => s.goals > 0 || s.assists > 0 || s.gele_kaarten > 0 || s.rode_kaarten > 0 || s.eigen_goals > 0);
     let savedStats: WedstrijdSpelerStats[] = [];
     if (validStats.length > 0) {
-      const { data: inserted } = await supabase.from('wedstrijd_speler_stats').insert(
+      const { data: inserted, error: statsError } = await supabase.from('wedstrijd_speler_stats').insert(
         validStats.map(s => ({
           wedstrijd_id: wedstrijd.id,
           speler_id: s.speler_id,
@@ -111,6 +112,10 @@ function StatistiekenContent() {
           eigen_goals: s.eigen_goals,
         }))
       ).select('*, spelers(*)');
+      if (statsError) {
+        await supabase.from('wedstrijden').delete().eq('id', wedstrijd.id);
+        throw new Error(statsError.message);
+      }
       savedStats = inserted ?? [];
     }
 
@@ -347,13 +352,19 @@ function StatistiekenContent() {
 
 function AddWedstrijdFormWithStats({ spelers, onAdd, onCancel }: {
   spelers: Speler[];
-  onAdd: (datum: string, tegenstander: string, locatie: string, stats: SpelerStatInput[]) => void;
+  onAdd: (datum: string, tegenstander: string, locatie: string, stats: SpelerStatInput[]) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [datum, setDatum] = useState('');
+  const [datum, setDatum] = useState(() => {
+    const today = new Date();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${today.getFullYear()}-${month}-${day}`;
+  });
   const [tegenstander, setTegenstander] = useState('');
   const [locatie, setLocatie] = useState('');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [expandedSpeler, setExpandedSpeler] = useState<string | null>(null);
   const [statInputs, setStatInputs] = useState<Record<string, SpelerStatInput>>({});
 
@@ -368,12 +379,22 @@ function AddWedstrijdFormWithStats({ spelers, onAdd, onCancel }: {
     }));
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!datum || !tegenstander.trim()) return;
+    if (!datum || !tegenstander.trim()) {
+      setError('Vul de datum en tegenstander in.');
+      return;
+    }
+
+    setError(null);
     setSaving(true);
-    const stats = Object.values(statInputs);
-    onAdd(datum, tegenstander.trim(), locatie.trim(), stats);
+    try {
+      const stats = Object.values(statInputs);
+      await onAdd(datum, tegenstander.trim(), locatie.trim(), stats);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'De wedstrijd kon niet worden opgeslagen.');
+      setSaving(false);
+    }
   }
 
   const hasAnyStats = Object.values(statInputs).some(s => s.goals > 0 || s.assists > 0 || s.gele_kaarten > 0 || s.rode_kaarten > 0 || s.eigen_goals > 0);
@@ -471,8 +492,14 @@ function AddWedstrijdFormWithStats({ spelers, onAdd, onCancel }: {
         </div>
       </div>
 
+      {error && (
+        <p role="alert" className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </p>
+      )}
+
       <div className="flex gap-2">
-        <button type="submit" disabled={saving || !datum || !tegenstander.trim()} className="flex-1 bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-60 text-sm flex items-center justify-center gap-2">
+        <button type="submit" disabled={saving} className="flex-1 bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-60 text-sm flex items-center justify-center gap-2">
           <Check className="w-4 h-4" /> {saving ? 'Opslaan...' : 'Opslaan'}
         </button>
         <button type="button" onClick={onCancel} className="px-5 bg-gray-100 text-gray-500 font-semibold rounded-xl hover:bg-gray-200 transition-colors text-sm">
