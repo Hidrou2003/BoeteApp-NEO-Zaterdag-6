@@ -122,8 +122,8 @@ function BetalingContent() {
 
   useEffect(() => { load(); }, []);
 
-  async function load() {
-    setLoading(true);
+  async function load(silent = false) {
+    if (!silent) setLoading(true);
 
     const { data: inst } = await supabase.from('app_instellingen').select('*').eq('id', 1).maybeSingle();
     setInstellingen(inst as AppInstellingen | null);
@@ -142,6 +142,7 @@ function BetalingContent() {
 
     setScreenshots(shots as BankScreenshot[] ?? []);
     setAllSpelers(spelers as Speler[] ?? []);
+    if (silent) document.body.style.cursor = 'wait';
 
     const { data: cats } = await supabase.from('boetecategorieen').select('*');
     const boetepot = extractBoetepotBasis((cats ?? []) as Boetecategorie[]);
@@ -245,7 +246,8 @@ function BetalingContent() {
 
     result.reverse();
     setWeken(result);
-    setLoading(false);
+    if (silent) document.body.style.cursor = '';
+    else setLoading(false);
   }
 
   async function setBetaalStatus(weekKey: string, spelerId: string, status: BetaalStatus) {
@@ -255,7 +257,7 @@ function BetalingContent() {
     // Clicking the already-active status clears it
     if (existing && existing.betaal_status === status) {
       await supabase.from('betalingen').delete().eq('speler_id', spelerId).eq('week_key', weekKey);
-      load();
+      load(true);
       return;
     }
 
@@ -268,7 +270,7 @@ function BetalingContent() {
       te_weinig_bedrag: teWeinig,
     }, { onConflict: 'speler_id,week_key' });
 
-    load();
+    load(true);
   }
 
   async function saveBoetepotBasis() {
@@ -294,7 +296,7 @@ function BetalingContent() {
     }
     setEditingBoetepot(false);
     setBoetepotInput('');
-    load();
+    load(true);
   }
 
   async function saveTeWeinig(weekKey: string, spelerId: string) {
@@ -308,19 +310,19 @@ function BetalingContent() {
     }, { onConflict: 'speler_id,week_key' });
     setEditingTeWeinig(null);
     setTeWeinigValue('');
-    load();
+    load(true);
   }
 
   async function saveBetaalUrl(url: string) {
     await supabase.from('app_instellingen').update({ betaal_url: url || null }).eq('id', 1);
-    load();
+    load(true);
   }
 
   async function toggleBetaalLinkActief() {
     if (!isHoofdbeheerder) return;
     const newValue = !(instellingen?.betaal_link_actief ?? true);
     await supabase.from('app_instellingen').update({ betaal_link_actief: newValue }).eq('id', 1);
-    load();
+    load(true);
   }
 
   async function setWeekNietGedeeld(weekKey: string) {
@@ -340,7 +342,7 @@ function BetalingContent() {
       }));
       await supabase.from('betalingen').upsert(rows, { onConflict: 'speler_id,week_key' });
     }
-    load();
+    load(true);
   }
 
   const statusLabels: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -356,7 +358,7 @@ function BetalingContent() {
 
   // Boetepot totaal = manual basis + sum of all paid weeks from vanafWeek onward
   const boetepotTotaal = boetepotBasis + weken.reduce((sum, w) => {
-    if (boetepotVanafWeek && w.weekKey < boetepotVanafWeek) return sum;
+    if (boetepotVanafWeek && w.weekKey <= boetepotVanafWeek) return sum;
     return sum + w.spelers.reduce((s2, sp) => {
       return sp.betaling?.betaal_status === 'betaald' ? s2 + sp.teBetalen : s2;
     }, 0);
