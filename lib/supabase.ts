@@ -116,7 +116,7 @@ export interface OverigeBoete {
   spelers?: Speler;
 }
 
-export type BetaalStatus = 'betaald' | 'te_laag_betaald' | 'niet_betaald' | 'te_weinig_betaald' | 'niet_gedeeld' | null;
+export type BetaalStatus = 'betaald' | 'te_laag_betaald' | 'niet_betaald' | 'te_weinig_betaald' | 'niet_gedeeld' | 'uitgesteld' | null;
 
 export interface Betaling {
   id: string;
@@ -182,7 +182,7 @@ export interface OcrEntry {
   bedrag: string;
   bedrag_cents: number;
   speler_id: string | null;
-  matched_status: 'betaald' | 'te_weinig_betaald' | 'niet_betaald' | 'te_laag_betaald' | null;
+  matched_status: 'betaald' | 'te_weinig_betaald' | 'niet_betaald' | 'te_laag_betaald' | 'uitgesteld' | null;
 }
 
 export interface NaamAlias {

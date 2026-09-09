@@ -111,7 +111,7 @@ interface ReviewRow {
   ocrNaam: string;
   bedragCents: number;
   spelerId: string | null;
-  status: 'betaald' | 'te_weinig_betaald' | 'niet_betaald' | 'te_laag_betaald';
+  status: 'betaald' | 'te_weinig_betaald' | 'niet_betaald' | 'te_laag_betaald' | 'uitgesteld';
   teWeinigBedrag: number;
 }
 
@@ -440,6 +440,7 @@ export default function AfgerondTab({ screenshots, spelers, weken, onChanged }: 
     te_weinig_betaald: 'bg-amber-100 text-amber-700',
     niet_betaald: 'bg-red-100 text-red-700',
     te_laag_betaald: 'bg-orange-100 text-orange-700',
+    uitgesteld: 'bg-blue-100 text-blue-700',
   };
 
   const statusLabels: Record<string, string> = {
@@ -447,6 +448,7 @@ export default function AfgerondTab({ screenshots, spelers, weken, onChanged }: 
     te_weinig_betaald: 'Te weinig betaald',
     niet_betaald: 'Niet betaald',
     te_laag_betaald: 'Te laat betaald',
+    uitgesteld: 'Uitgesteld',
   };
 
   return (

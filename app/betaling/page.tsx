@@ -214,11 +214,13 @@ function BetalingContent() {
         const prevFullTeBetalen = prevTeBetalen?.get(spelerId) ?? 0;
 
         if (prevBetaling && prevFullTeBetalen > 0) {
-          if (prevBetaling.betaal_status === 'te_laag_betaald' || prevBetaling.betaal_status === 'niet_gedeeld') {
+          if (prevBetaling.betaal_status === 'te_laag_betaald' || prevBetaling.betaal_status === 'niet_gedeeld' || prevBetaling.betaal_status === 'uitgesteld') {
             carryover = prevFullTeBetalen;
             carryoverLabel = prevBetaling.betaal_status === 'niet_gedeeld'
               ? `Niet gedeeld wk ${prevWeekKey}: +${formatBedrag(prevFullTeBetalen)}`
-              : `Te laat betaald wk ${prevWeekKey}: +${formatBedrag(prevFullTeBetalen)}`;
+              : prevBetaling.betaal_status === 'uitgesteld'
+                ? `Uitgesteld wk ${prevWeekKey}: +${formatBedrag(prevFullTeBetalen)}`
+                : `Te laat betaald wk ${prevWeekKey}: +${formatBedrag(prevFullTeBetalen)}`;
           } else if (prevBetaling.betaal_status === 'niet_betaald') {
             carryover = prevFullTeBetalen * 2;
             carryoverLabel = `Niet betaald wk ${prevWeekKey}: +${formatBedrag(prevFullTeBetalen * 2)}`;
@@ -350,6 +352,7 @@ function BetalingContent() {
     te_laag_betaald: { label: 'Te laat betaald', color: 'bg-orange-100 text-orange-700', icon: <Clock className="w-3 h-3" /> },
     niet_betaald: { label: 'Niet betaald', color: 'bg-red-100 text-red-700', icon: <X className="w-3 h-3" /> },
     te_weinig_betaald: { label: 'Te weinig betaald', color: 'bg-amber-100 text-amber-700', icon: <AlertCircle className="w-3 h-3" /> },
+    uitgesteld: { label: 'Uitgesteld', color: 'bg-blue-100 text-blue-700', icon: <Clock className="w-3 h-3" /> },
   };
 
   const payableWeekKey = getPayableWeekKey();
@@ -454,6 +457,7 @@ const statusLabelsGlobal: Record<string, { label: string; color: string; icon: R
   niet_betaald: { label: 'Niet betaald', color: 'bg-red-100 text-red-700', icon: <X className="w-3 h-3" /> },
   te_weinig_betaald: { label: 'Te weinig betaald', color: 'bg-amber-100 text-amber-700', icon: <AlertCircle className="w-3 h-3" /> },
   niet_gedeeld: { label: 'Niet gedeeld', color: 'bg-gray-200 text-gray-600', icon: <X className="w-3 h-3" /> },
+  uitgesteld: { label: 'Uitgesteld', color: 'bg-blue-100 text-blue-700', icon: <Clock className="w-3 h-3" /> },
 };
 
 // ============================================================
