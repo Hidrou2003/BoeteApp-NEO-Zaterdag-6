@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
-import { supabase, Speler, Boetecategorie, Profile, NaamAlias, AppInstellingen, formatBedrag, REGELS_PREFIX, extractRegelsTekst, GEMINI_PREFIX, extractGeminiKey } from '@/lib/supabase';
+import { supabase, Speler, Boetecategorie, Profile, NaamAlias, SpelerEmail, AppInstellingen, formatBedrag, REGELS_PREFIX, extractRegelsTekst, GEMINI_PREFIX, extractGeminiKey } from '@/lib/supabase';
 import { Settings, Plus, Trash2, Pencil, X, Check, Users, Tag, Zap, Lock, Euro, Shield, UserCheck, AlertCircle, Mail, UserCircle, TrendingUp, FileText, Key, MoreHorizontal, ChevronDown, ChevronUp, UserX, BookOpen } from 'lucide-react';
 
 export default function InstellingenPage() {
@@ -24,6 +24,7 @@ function InstellingenContent() {
   const [categorieen, setCategorieen] = useState<Boetecategorie[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [aliases, setAliases] = useState<(NaamAlias & { spelers?: Speler })[]>([]);
+  const [spelerEmails, setSpelerEmails] = useState<SpelerEmail[]>([]);
   const [instellingen, setInstellingen] = useState<AppInstellingen | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -33,17 +34,19 @@ function InstellingenContent() {
   useEffect(() => { load(); }, []);
 
   async function load() {
-    const [{ data: sps }, { data: cats }, { data: profs }, { data: al }, { data: inst }] = await Promise.all([
+    const [{ data: sps }, { data: cats }, { data: profs }, { data: al }, { data: se }, { data: inst }] = await Promise.all([
       supabase.from('spelers').select('*').order('naam'),
       supabase.from('boetecategorieen').select('*').order('volgorde'),
       supabase.from('profiles').select('*').order('naam'),
       supabase.from('naam_aliases').select('*, spelers(*)').order('alias'),
+      supabase.from('speler_emails').select('*').order('email'),
       supabase.from('app_instellingen').select('*').eq('id', 1).maybeSingle(),
     ]);
     setSpelers(sps ?? []);
     setCategorieen(cats ?? []);
     setProfiles(profs ?? []);
     setAliases(al ?? []);
+    setSpelerEmails(se ?? []);
     setInstellingen(inst as AppInstellingen | null);
     setLoading(false);
   }
@@ -100,7 +103,7 @@ function InstellingenContent() {
           {[1, 2, 3].map(i => <div key={i} className="h-16 bg-gray-100 rounded-2xl animate-pulse" />)}
         </div>
       ) : tab === 'spelers' ? (
-        <SpelersTab spelers={spelers} profiles={profiles} aliases={aliases} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
+        <SpelersTab spelers={spelers} profiles={profiles} aliases={aliases} spelerEmails={spelerEmails} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
       ) : tab === 'boetelijst' ? (
         <BoetelijstTab categorieen={categorieen} instellingen={instellingen} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
       ) : tab === 'overig' ? (
@@ -113,10 +116,11 @@ function InstellingenContent() {
 // ============================================================
 // SPELERS TAB
 // ============================================================
-function SpelersTab({ spelers, profiles, aliases, isHoofdbeheerder, onChanged }: {
+function SpelersTab({ spelers, profiles, aliases, spelerEmails, isHoofdbeheerder, onChanged }: {
   spelers: Speler[];
   profiles: Profile[];
   aliases: (NaamAlias & { spelers?: Speler })[];
+  spelerEmails: SpelerEmail[];
   isHoofdbeheerder: boolean;
   onChanged: () => void;
 }) {
@@ -132,6 +136,8 @@ function SpelersTab({ spelers, profiles, aliases, isHoofdbeheerder, onChanged }:
   const [expandedAliases, setExpandedAliases] = useState<string | null>(null);
   const [newAlias, setNewAlias] = useState('');
   const [addingAliasFor, setAddingAliasFor] = useState<string | null>(null);
+  const [addingEmailFor, setAddingEmailFor] = useState<string | null>(null);
+  const [newEmail, setNewEmail] = useState('');
 
   const aliasesBySpeler = new Map<string, NaamAlias[]>();
   for (const a of aliases) {
@@ -140,11 +146,46 @@ function SpelersTab({ spelers, profiles, aliases, isHoofdbeheerder, onChanged }:
     aliasesBySpeler.set(a.speler_id, list);
   }
 
+  const emailsBySpeler = new Map<string, SpelerEmail[]>();
+  for (const em of spelerEmails) {
+    const list = emailsBySpeler.get(em.speler_id) ?? [];
+    list.push(em);
+    emailsBySpeler.set(em.speler_id, list);
+  }
+
+  async function addEmail(spelerId: string) {
+    if (!newEmail.trim()) return;
+    await supabase.from('speler_emails').insert({ email: newEmail.trim().toLowerCase(), speler_id: spelerId });
+    setNewEmail('');
+    setAddingEmailFor(null);
+    onChanged();
+  }
+
+  async function deleteEmail(id: string) {
+    await supabase.from('speler_emails').delete().eq('id', id);
+    onChanged();
+  }
+
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
     if (!newNaam.trim()) return;
     setSaving(true);
-    await supabase.from('spelers').insert({ naam: newNaam.trim() });
+    const naam = newNaam.trim();
+    // Try to auto-link: find a profile whose email or naam closely matches
+    const lowerNaam = naam.toLowerCase();
+    const parts = lowerNaam.split(/\s+/);
+    let suggestedProfileId: string | null = null;
+    for (const p of profiles) {
+      const pEmail = p.email.toLowerCase();
+      const pNaam = (p.naam || '').toLowerCase();
+      if (pNaam === lowerNaam || pEmail === lowerNaam) { suggestedProfileId = p.id; break; }
+      if (parts.length >= 2 && pNaam) {
+        const pParts = pNaam.split(/\s+/);
+        if (pParts[0] === parts[0] && pParts[pParts.length - 1] === parts[parts.length - 1]) { suggestedProfileId = p.id; break; }
+      }
+      if (parts.length === 1 && pNaam && pNaam.includes(lowerNaam)) { suggestedProfileId = p.id; break; }
+    }
+    await supabase.from('spelers').insert({ naam, profile_id: suggestedProfileId });
     setNewNaam('');
     setAdding(false);
     setSaving(false);
@@ -420,6 +461,48 @@ function SpelersTab({ spelers, profiles, aliases, isHoofdbeheerder, onChanged }:
                             Naamkoppeling toevoegen
                           </button>
                         )
+                      )}
+                    </div>
+                  )}
+
+                  {/* Extra emails section - expandable, only for hoofdbeheerder */}
+                  {isExpanded && isHoofdbeheerder && (
+                    <div className="mt-3 ml-12 space-y-2">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Extra e-mailadressen</p>
+                      {(emailsBySpeler.get(sp.id) ?? []).map(em => (
+                        <div key={em.id} className="flex items-center gap-2 bg-blue-50 rounded-lg px-3 py-2">
+                          <Mail className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+                          <span className="flex-1 text-xs font-medium text-gray-700 truncate">{em.email}</span>
+                          <button onClick={() => deleteEmail(em.id)} className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ))}
+                      {addingEmailFor === sp.id ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="email"
+                            value={newEmail}
+                            onChange={e => setNewEmail(e.target.value)}
+                            placeholder="extra@email.nl"
+                            autoFocus
+                            className="flex-1 px-3 py-2 rounded-lg border border-gray-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <button onClick={() => addEmail(sp.id)} className="w-7 h-7 bg-green-600 text-white rounded-lg flex items-center justify-center hover:bg-green-700 transition-colors">
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => { setAddingEmailFor(null); setNewEmail(''); }} className="w-7 h-7 bg-gray-100 text-gray-500 rounded-lg flex items-center justify-center hover:bg-gray-200 transition-colors">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setAddingEmailFor(sp.id)}
+                          className="flex items-center gap-1 text-xs text-blue-600 font-medium hover:text-blue-800"
+                        >
+                          <Plus className="w-3 h-3" />
+                          E-mail toevoegen
+                        </button>
                       )}
                     </div>
                   )}

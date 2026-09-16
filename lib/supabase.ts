@@ -195,6 +195,56 @@ export interface NaamAlias {
   created_at: string;
 }
 
+export interface SpelerEmail {
+  id: string;
+  speler_id: string;
+  email: string;
+  created_at: string;
+}
+
+
+export interface Rijschema {
+  id: string;
+  naam: string;
+  actief: boolean;
+  seizoen: string | null;
+  created_at: string;
+  created_by: string | null;
+}
+
+export interface RijschemaItem {
+  id: string;
+  rijschema_id: string;
+  datum: string;
+  tijd: string | null;
+  wedstrijd: string | null;
+  chauffeurs: string[];
+  is_fiets: boolean;
+  volgorde: number;
+  created_at: string;
+}
+
+export interface Corveeschema {
+  id: string;
+  naam: string;
+  actief: boolean;
+  seizoen: string | null;
+  created_at: string;
+  created_by: string | null;
+}
+
+export interface CorveeschemaItem {
+  id: string;
+  corveeschema_id: string;
+  label: string;
+  datum_start: string | null;
+  datum_eind: string | null;
+  namen: string[];
+  is_break: boolean;
+  volgorde: number;
+  created_at: string;
+}
+
 export function formatBedrag(cents: number): string {
   return `€${(cents / 100).toFixed(2).replace('.', ',')}`;
 }
