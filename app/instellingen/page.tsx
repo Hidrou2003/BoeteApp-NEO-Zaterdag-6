@@ -5,7 +5,7 @@ import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { supabase, Speler, Boetecategorie, Profile, NaamAlias, AppInstellingen, formatBedrag, REGELS_PREFIX, extractRegelsTekst, GEMINI_PREFIX, extractGeminiKey } from '@/lib/supabase';
-import { Settings, Plus, Trash2, Pencil, X, Check, Users, Tag, Zap, Lock, Euro, Shield, UserCheck, AlertCircle, Mail, UserCircle, TrendingUp, FileText, Key, MoreHorizontal, ChevronDown, ChevronUp, UserX } from 'lucide-react';
+import { Settings, Plus, Trash2, Pencil, X, Check, Users, Tag, Zap, Lock, Euro, Shield, UserCheck, AlertCircle, Mail, UserCircle, TrendingUp, FileText, Key, MoreHorizontal, ChevronDown, ChevronUp, UserX, BookOpen } from 'lucide-react';
 
 export default function InstellingenPage() {
   return (
@@ -125,6 +125,7 @@ function SpelersTab({ spelers, profiles, aliases, isHoofdbeheerder, onChanged }:
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editNaam, setEditNaam] = useState('');
   const [editMaxOngeoorloord, setEditMaxOngeoorloord] = useState(5);
+  const [editMaxOngeoorloordStr, setEditMaxOngeoorloordStr] = useState('5');
   const [editProfileId, setEditProfileId] = useState<string | null>(null);
   const [editDoeMeeAanBoetes, setEditDoeMeeAanBoetes] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -252,10 +253,17 @@ function SpelersTab({ spelers, profiles, aliases, isHoofdbeheerder, onChanged }:
                     <input
                       type="text"
                       inputMode="numeric"
-                      value={editMaxOngeoorloord}
+                      value={editMaxOngeoorloordStr}
                       onChange={e => {
                         const digits = e.target.value.replace(/\D/g, '');
-                        setEditMaxOngeoorloord(digits ? parseInt(digits) : 5);
+                        setEditMaxOngeoorloordStr(digits);
+                        setEditMaxOngeoorloord(digits ? parseInt(digits) : 0);
+                      }}
+                      onBlur={() => {
+                        if (!editMaxOngeoorloordStr || editMaxOngeoorloord === 0) {
+                          setEditMaxOngeoorloord(5);
+                          setEditMaxOngeoorloordStr('5');
+                        }
                       }}
                       className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
@@ -361,7 +369,7 @@ function SpelersTab({ spelers, profiles, aliases, isHoofdbeheerder, onChanged }:
                     </div>
                     {isHoofdbeheerder && (
                       <>
-                        <button onClick={() => { setEditingId(sp.id); setEditNaam(sp.naam); setEditMaxOngeoorloord(sp.max_ongeoorloord ?? 5); setEditProfileId(sp.profile_id ?? null); setEditDoeMeeAanBoetes(sp.doe_mee_aan_boetes ?? true); }} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                        <button onClick={() => { setEditingId(sp.id); setEditNaam(sp.naam); setEditMaxOngeoorloord(sp.max_ongeoorloord ?? 5); setEditMaxOngeoorloordStr(String(sp.max_ongeoorloord ?? 5)); setEditProfileId(sp.profile_id ?? null); setEditDoeMeeAanBoetes(sp.doe_mee_aan_boetes ?? true); }} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
                           <Pencil className="w-3.5 h-3.5" />
                         </button>
                         <button onClick={() => handleDelete(sp.id)} className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors">
@@ -540,6 +548,20 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
     if (!isHoofdbeheerder) return;
     const newVal = !(instellingen?.ongeoorloord_enabled ?? true);
     await supabase.from('app_instellingen').upsert({ id: 1, ongeoorloord_enabled: newVal });
+    onChanged();
+  }
+
+  const [editingOpslag, setEditingOpslag] = useState(false);
+  const [opslagBase, setOpslagBase] = useState('');
+  const [opslagVerhoogd, setOpslagVerhoogd] = useState('');
+
+  async function saveOpslag() {
+    setSaving(true);
+    const base = Math.round(parseFloat(opslagBase.replace(',', '.')) * 100) || 200;
+    const verhoogd = Math.round(parseFloat(opslagVerhoogd.replace(',', '.')) * 100) || 400;
+    await supabase.from('app_instellingen').upsert({ id: 1, opslag_ongeoorloord: base, opslag_ongeoorloord_verhoogd: verhoogd });
+    setEditingOpslag(false);
+    setSaving(false);
     onChanged();
   }
 
@@ -819,6 +841,63 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
             <div className="w-5 h-5 bg-white rounded-full shadow-sm" />
           </div>
         </button>
+        {(instellingen?.ongeoorloord_enabled ?? true) && (
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            {editingOpslag ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Opslag (EUR)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={opslagBase}
+                      onChange={e => setOpslagBase(e.target.value)}
+                      placeholder="2,00"
+                      autoFocus
+                      className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Verhoogd (EUR)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={opslagVerhoogd}
+                      onChange={e => setOpslagVerhoogd(e.target.value)}
+                      placeholder="4,00"
+                      className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400">Het verhoogde bedrag geldt boven de max ongeoorloord per speler.</p>
+                <div className="flex gap-2">
+                  <button onClick={saveOpslag} disabled={saving} className="flex-1 bg-green-600 text-white font-semibold py-2.5 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-60 text-sm flex items-center justify-center gap-2">
+                    <Check className="w-4 h-4" /> Opslaan
+                  </button>
+                  <button onClick={() => setEditingOpslag(false)} className="px-5 bg-gray-100 text-gray-500 font-semibold rounded-xl hover:bg-gray-200 transition-colors text-sm">
+                    Annuleren
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-gray-500">
+                    Opslag: <span className="font-semibold text-gray-700">{formatBedrag(instellingen?.opslag_ongeoorloord ?? 200)}</span>
+                    <span className="text-gray-300 mx-1.5">·</span>
+                    Verhoogd: <span className="font-semibold text-gray-700">{formatBedrag(instellingen?.opslag_ongeoorloord_verhoogd ?? 400)}</span>
+                  </p>
+                </div>
+                {isHoofdbeheerder && (
+                  <button onClick={() => { setOpslagBase(((instellingen?.opslag_ongeoorloord ?? 200) / 100).toFixed(2).replace('.', ',')); setOpslagVerhoogd(((instellingen?.opslag_ongeoorloord_verhoogd ?? 400) / 100).toFixed(2).replace('.', ',')); setEditingOpslag(true); }} className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -836,9 +915,79 @@ function OverigTab({ categorieen, isHoofdbeheerder, onChanged }: {
   const [editingGeminiKey, setEditingGeminiKey] = useState(false);
   const [geminiKeyInput, setGeminiKeyInput] = useState('');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [showAppRules, setShowAppRules] = useState(false);
+  const [editingAppRules, setEditingAppRules] = useState(false);
+  const [appRulesText, setAppRulesText] = useState('');
 
   const storedKey = extractGeminiKey(categorieen);
   const hasKey = !!storedKey;
+
+  const APP_RULES_PREFIX = '__APPRULES__';
+  const storedAppRules = (() => {
+    const cat = categorieen.find(c => c.naam.startsWith(APP_RULES_PREFIX));
+    return cat ? cat.naam.slice(APP_RULES_PREFIX.length) : '';
+  })();
+
+  const defaultAppRules = `BOETE-APP — HOE WERKT HET?
+
+Activiteiten aanmaken
+- Een beheerder maakt een activiteit aan (bijv. training, wedstrijd).
+- Per speler wordt aangegeven of deze aanwezig, geoorloofd afwezig of ongeoorloord afwezig is.
+
+Boetes invullen
+- Per speler kunnen boetes worden toegevoegd per categorie.
+- De boetes worden automatisch gesorteerd op hoe vaak ze in eerdere activiteiten zijn uitgedeeld.
+- Bij "open bedrag" vul je het bedrag per stuk in tijdens de activiteit.
+
+Berekening
+- Aanwezige spelers betalen hun eigen boetes plus eventuele teamboetes.
+- Geoorloord afwezige spelers betalen het gemiddelde van de aanwezige spelers, plus eigen boetes en teamboetes.
+- Ongeoorloord afwezige spelers betalen het gemiddelde, plus een opslag, plus eigen boetes en teamboetes.
+- De opslag is standaard EUR 2, en wordt verhoogd naar EUR 4 als een speler vaker dan het maximum ongeoorloord afwezig is geweest.
+
+Dubbele activiteit / dubbele maand
+- Bij een dubbele activiteit worden verdubbelbare boetes x2 gerekend.
+- Bij een dubbele maand worden alle boetes x2 gerekend.
+- Beide aan = verdubbelbare boetes x4.
+
+0 euro = 2 euro
+- Als deze instelling aan staat, wordt een weektotaal van 0 euro automatisch omgezet naar 2 euro.
+
+Teamboetes
+- Teamboetes gelden voor alle spelers (aanwezig en afwezig) en tellen niet mee met het gemiddelde.
+
+Betalingen
+- Per week kunnen betalingen worden geregistreerd en gematcht met bankafschriften.
+- Een betaallink kan worden gedeeld met spelers.
+
+Statistieken
+- Spelers die niet meedoen aan boetes (alleen statistieken) worden uitgesloten van boeteberekeningen maar wel bijgehouden voor aanwezigheid.`;
+
+  async function saveAppRules() {
+    setSaving(true);
+    const text = appRulesText.trim();
+    const existing = categorieen.find(c => c.naam.startsWith(APP_RULES_PREFIX));
+    if (existing) {
+      if (text) {
+        await supabase.from('boetecategorieen').update({ naam: APP_RULES_PREFIX + text }).eq('id', existing.id);
+      } else {
+        await supabase.from('boetecategorieen').delete().eq('id', existing.id);
+      }
+    } else if (text) {
+      const maxVolgorde = categorieen.reduce((max, c) => Math.max(max, c.volgorde), 0);
+      await supabase.from('boetecategorieen').insert({
+        naam: APP_RULES_PREFIX + text,
+        bedrag: 0,
+        verdubbelbaar: false,
+        open_bedrag: false,
+        actief: false,
+        volgorde: maxVolgorde + 1,
+      });
+    }
+    setEditingAppRules(false);
+    setSaving(false);
+    onChanged();
+  }
 
   async function saveGeminiKey() {
     setSaving(true);
@@ -884,6 +1033,56 @@ function OverigTab({ categorieen, isHoofdbeheerder, onChanged }: {
 
   return (
     <div className="space-y-4">
+      {/* App regels — uitvouwen */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <button
+          onClick={() => setShowAppRules(!showAppRules)}
+          className="w-full flex items-center justify-between px-4 py-4"
+        >
+          <div className="flex items-center gap-2">
+            <BookOpen className="w-4 h-4 text-gray-500" />
+            <h3 className="text-sm font-semibold text-gray-800">App regels</h3>
+          </div>
+          {showAppRules ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
+        </button>
+        {showAppRules && (
+          <div className="px-4 pb-4">
+            {editingAppRules ? (
+              <div className="space-y-3">
+                <textarea
+                  value={appRulesText}
+                  onChange={e => setAppRulesText(e.target.value)}
+                  rows={20}
+                  autoFocus
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                />
+                <div className="flex gap-2">
+                  <button onClick={saveAppRules} disabled={saving} className="flex-1 bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-60 text-sm flex items-center justify-center gap-2">
+                    <Check className="w-4 h-4" /> Opslaan
+                  </button>
+                  <button onClick={() => setEditingAppRules(false)} className="px-5 bg-gray-100 text-gray-500 font-semibold rounded-xl hover:bg-gray-200 transition-colors text-sm">
+                    Annuleren
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed">{storedAppRules || defaultAppRules}</p>
+                {isHoofdbeheerder && (
+                  <button
+                    onClick={() => { setAppRulesText(storedAppRules || defaultAppRules); setEditingAppRules(true); }}
+                    className="mt-3 flex items-center gap-1.5 text-xs text-blue-600 font-medium hover:text-blue-800"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    Regels bewerken
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Gemini API key */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
         <div className="flex items-center justify-between mb-3">

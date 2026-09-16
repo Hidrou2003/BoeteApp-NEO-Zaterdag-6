@@ -209,7 +209,7 @@ function SpelerEditContent() {
         .eq('aanwezigheid', 'ongeoorloofd_afwezig');
       const prevCount = (history ?? []).length;
       const maxOngeoorloord = speler.max_ongeoorloord ?? 5;
-      opslagBedrag = prevCount > maxOngeoorloord ? 400 : 200;
+      opslagBedrag = prevCount > maxOngeoorloord ? (instellingen?.opslag_ongeoorloord_verhoogd ?? 400) : (instellingen?.opslag_ongeoorloord ?? 200);
     }
 
     let totaal = 0;
@@ -523,7 +523,7 @@ function SpelerEditContent() {
           )}
           {aanwezigheid === 'ongeoorloofd_afwezig' && (instellingen?.ongeoorloord_enabled ?? true) && (
             <div className="rounded-xl px-4 py-3 text-sm bg-red-50 text-red-800">
-              {`Krijgt het gemiddelde + een opslag van EUR 2 (of EUR 4 bij meer dan ${speler.max_ongeoorloord ?? 5} keer ongeoorloord afwezig), plus eventuele extra boetes hierboven.`}
+              {`Krijgt het gemiddelde + een opslag van ${formatBedrag(instellingen?.opslag_ongeoorloord ?? 200)} (of ${formatBedrag(instellingen?.opslag_ongeoorloord_verhoogd ?? 400)} bij meer dan ${speler.max_ongeoorloord ?? 5} keer ongeoorloord afwezig), plus eventuele extra boetes hierboven.`}
             </div>
           )}
         </div>
