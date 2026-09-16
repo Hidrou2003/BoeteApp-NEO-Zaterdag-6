@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
-import { supabase, Activiteit, Speler, Boetecategorie, calcBedrag, formatBedrag } from '@/lib/supabase';
+import { supabase, Activiteit, Speler, Boetecategorie, calcBedrag, formatBedrag, AppInstellingen } from '@/lib/supabase';
 import { ArrowLeft, CheckCircle, Euro, Minus, Plus, User, UserCheck, UserX, Zap, Calendar } from 'lucide-react';
 import Link from 'next/link';
 
@@ -38,21 +38,49 @@ function SpelerEditContent() {
   const [teamBoetes, setTeamBoetes] = useState<Record<string, BoeteEntry>>({});
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [instellingen, setInstellingen] = useState<AppInstellingen | null>(null);
 
   const isBeheerder = profile?.rol === 'beheerder' || profile?.rol === 'hoofdbeheerder';
 
   useEffect(() => { load(); }, [id, spelerId]);
 
   async function load() {
-    const [{ data: act }, { data: sp }, { data: cats }, { data: existing }] = await Promise.all([
+    const [{ data: act }, { data: sp }, { data: cats }, { data: existing }, { data: inst }] = await Promise.all([
       supabase.from('activiteiten').select('*, gemaakt_door_profile:profiles!gemaakt_door(naam,email), gewijzigd_door_profile:profiles!gewijzigd_door(naam,email)').eq('id', id).single(),
       supabase.from('spelers').select('*').eq('id', spelerId).single(),
       supabase.from('boetecategorieen').select('*').eq('actief', true).order('volgorde'),
       supabase.from('activiteit_spelers').select('*, boete_items(*)').eq('activiteit_id', id).eq('speler_id', spelerId).maybeSingle(),
+      supabase.from('app_instellingen').select('*').eq('id', 1).maybeSingle(),
     ]);
     setActiviteit(act);
     setSpeler(sp);
-    setCategorieen(cats ?? []);
+    setInstellingen(inst as AppInstellingen | null);
+
+    // Sort categories by usage frequency across past completed activities
+    const { data: pastActs } = await supabase.from('activiteiten').select('id').eq('afgerond', true).neq('id', id);
+    const pastActIds = (pastActs ?? []).map((a: { id: string }) => a.id);
+    let sortedCats = cats ?? [];
+    if (pastActIds.length > 0) {
+      const { data: pastAsRows } = await supabase
+        .from('activiteit_spelers')
+        .select('id')
+        .in('activiteit_id', pastActIds);
+      const pastAsIds = (pastAsRows ?? []).map((r: { id: string }) => r.id);
+      if (pastAsIds.length > 0) {
+        const { data: allBoeteItems } = await supabase.from('boete_items').select('categorie_id, aantal').in('activiteit_speler_id', pastAsIds);
+        const usageCount: Record<string, number> = {};
+        for (const item of allBoeteItems ?? []) {
+          usageCount[item.categorie_id] = (usageCount[item.categorie_id] ?? 0) + (item.aantal ?? 0);
+        }
+        sortedCats = [...(cats ?? [])].sort((a, b) => {
+          const ua = usageCount[a.id] ?? 0;
+          const ub = usageCount[b.id] ?? 0;
+          if (ub !== ua) return ub - ua;
+          return a.volgorde - b.volgorde;
+        });
+      }
+    }
+    setCategorieen(sortedCats);
 
     if (existing) {
       setAanwezigheid(existing.aanwezigheid);
@@ -368,7 +396,7 @@ function SpelerEditContent() {
                 { value: 'aanwezig' as Aanwezigheid, label: 'Aanwezig', icon: <UserCheck className="w-4 h-4" />, color: 'green' as const },
                 { value: 'geoorloofd_afwezig' as Aanwezigheid, label: 'Geoorloofd', icon: <User className="w-4 h-4" />, color: 'amber' as const },
                 { value: 'ongeoorloofd_afwezig' as Aanwezigheid, label: 'Ongeoorloord', icon: <UserX className="w-4 h-4" />, color: 'red' as const },
-              ].map(opt => {
+              ].filter(opt => opt.value !== 'ongeoorloofd_afwezig' || (instellingen?.ongeoorloord_enabled ?? true)).map(opt => {
                 const colors = { green: opt.value === aanwezigheid ? 'bg-green-600 text-white border-green-600' : 'border-gray-200 text-gray-600', amber: opt.value === aanwezigheid ? 'bg-amber-500 text-white border-amber-500' : 'border-gray-200 text-gray-600', red: opt.value === aanwezigheid ? 'bg-red-600 text-white border-red-600' : 'border-gray-200 text-gray-600' };
                 return (
                   <button key={opt.value} onClick={() => isBeheerder && setAanwezigheid(opt.value)} className={`flex flex-col items-center gap-1 py-3 px-2 rounded-xl border-2 transition-all font-medium text-xs ${colors[opt.color]}`}>
@@ -493,7 +521,7 @@ function SpelerEditContent() {
               Krijgt het gemiddelde boetebedrag van de aanwezige spelers, plus eventuele extra boetes hierboven.
             </div>
           )}
-          {aanwezigheid === 'ongeoorloofd_afwezig' && (
+          {aanwezigheid === 'ongeoorloofd_afwezig' && (instellingen?.ongeoorloord_enabled ?? true) && (
             <div className="rounded-xl px-4 py-3 text-sm bg-red-50 text-red-800">
               {`Krijgt het gemiddelde + een opslag van EUR 2 (of EUR 4 bij meer dan ${speler.max_ongeoorloord ?? 5} keer ongeoorloord afwezig), plus eventuele extra boetes hierboven.`}
             </div>

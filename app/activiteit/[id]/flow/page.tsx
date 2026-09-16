@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
-import { supabase, Activiteit, Speler, Boetecategorie, calcBedrag, formatBedrag } from '@/lib/supabase';
+import { supabase, Activiteit, Speler, Boetecategorie, calcBedrag, formatBedrag, AppInstellingen } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
 import { ArrowLeft, ArrowRight, CheckCircle, Minus, Plus, Zap, User, UserCheck, UserX, Calendar, Euro, Users } from 'lucide-react';
 import Link from 'next/link';
@@ -45,18 +45,21 @@ function FlowContent() {
   const [teamBoetes, setTeamBoetes] = useState<TeamBoeteState[]>([]);
   const [index, setIndex] = useState(0);
   const [phase, setPhase] = useState<'spelers' | 'team'>('spelers');
+  const [instellingen, setInstellingen] = useState<AppInstellingen | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => { load(); }, [id]);
 
   async function load() {
-    const [{ data: act }, { data: sps }, { data: cats }, { data: existingSpelers }] = await Promise.all([
+    const [{ data: act }, { data: sps }, { data: cats }, { data: existingSpelers }, { data: inst }] = await Promise.all([
       supabase.from('activiteiten').select('*, gemaakt_door_profile:profiles!gemaakt_door(naam,email), gewijzigd_door_profile:profiles!gewijzigd_door(naam,email)').eq('id', id).single(),
       supabase.from('spelers').select('*').eq('actief', true).eq('doe_mee_aan_boetes', true).order('naam'),
       supabase.from('boetecategorieen').select('*').eq('actief', true).order('volgorde'),
       supabase.from('activiteit_spelers').select('*, boete_items(*)').eq('activiteit_id', id),
+      supabase.from('app_instellingen').select('*').eq('id', 1).maybeSingle(),
     ]);
+    setInstellingen(inst as AppInstellingen | null);
 
     if (!act || !sps || !cats) { setLoading(false); return; }
     setActiviteit(act);
@@ -537,10 +540,12 @@ function FlowContent() {
           {/* Attendance */}
           <div>
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Aanwezigheid</p>
-            <div className="grid grid-cols-3 gap-2">
+            <div className={`grid gap-2 ${(instellingen?.ongeoorloord_enabled ?? true) ? 'grid-cols-3' : 'grid-cols-2'}`}>
               <AttendanceButton label="Aanwezig" icon={<UserCheck className="w-4 h-4" />} active={current.aanwezigheid === 'aanwezig'} color="green" onClick={() => setAanwezigheid('aanwezig')} />
               <AttendanceButton label="Geoorloofd" icon={<User className="w-4 h-4" />} active={current.aanwezigheid === 'geoorloofd_afwezig'} color="amber" onClick={() => setAanwezigheid('geoorloofd_afwezig')} />
-              <AttendanceButton label="Ongeoorloord" icon={<UserX className="w-4 h-4" />} active={current.aanwezigheid === 'ongeoorloofd_afwezig'} color="red" onClick={() => setAanwezigheid('ongeoorloofd_afwezig')} />
+              {(instellingen?.ongeoorloord_enabled ?? true) && (
+                <AttendanceButton label="Ongeoorloord" icon={<UserX className="w-4 h-4" />} active={current.aanwezigheid === 'ongeoorloofd_afwezig'} color="red" onClick={() => setAanwezigheid('ongeoorloofd_afwezig')} />
+              )}
             </div>
           </div>
 
@@ -607,7 +612,7 @@ function FlowContent() {
               Krijgt het gemiddelde boetebedrag van de aanwezige spelers, plus eventuele extra boetes hierboven.
             </div>
           )}
-          {current.aanwezigheid === 'ongeoorloofd_afwezig' && (
+          {current.aanwezigheid === 'ongeoorloofd_afwezig' && (instellingen?.ongeoorloord_enabled ?? true) && (
             <div className="rounded-xl px-4 py-3 text-sm bg-red-50 text-red-800">
               {`Krijgt het gemiddelde + een opslag van EUR 2 (of EUR 4 bij meer dan ${current.speler.max_ongeoorloord ?? 5} keer ongeoorloord afwezig), plus eventuele extra boetes hierboven.`}
             </div>

@@ -5,7 +5,7 @@ import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { supabase, Speler, Boetecategorie, Profile, NaamAlias, AppInstellingen, formatBedrag, REGELS_PREFIX, extractRegelsTekst, GEMINI_PREFIX, extractGeminiKey } from '@/lib/supabase';
-import { Settings, Plus, Trash2, Pencil, X, Check, Users, Tag, Zap, Lock, Euro, Shield, UserCheck, AlertCircle, Mail, UserCircle, TrendingUp, FileText, Key, MoreHorizontal, ChevronDown, ChevronUp } from 'lucide-react';
+import { Settings, Plus, Trash2, Pencil, X, Check, Users, Tag, Zap, Lock, Euro, Shield, UserCheck, AlertCircle, Mail, UserCircle, TrendingUp, FileText, Key, MoreHorizontal, ChevronDown, ChevronUp, UserX } from 'lucide-react';
 
 export default function InstellingenPage() {
   return (
@@ -250,10 +250,13 @@ function SpelersTab({ spelers, profiles, aliases, isHoofdbeheerder, onChanged }:
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Max ongeoorloord afwezig</label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
                       value={editMaxOngeoorloord}
-                      onChange={e => setEditMaxOngeoorloord(parseInt(e.target.value) || 5)}
-                      min={1}
+                      onChange={e => {
+                        const digits = e.target.value.replace(/\D/g, '');
+                        setEditMaxOngeoorloord(digits ? parseInt(digits) : 5);
+                      }}
                       className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     <p className="text-xs text-gray-400 mt-1">Boven dit aantal gaat de opslag van EUR 2 naar EUR 4.</p>
@@ -488,12 +491,12 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
-    if (!newNaam.trim()) return;
+    if (!newNaam.trim() && !newTitel.trim()) return;
     setSaving(true);
     const bedrag = Math.round(parseFloat(newBedrag.replace(',', '.')) * 100) || 0;
     const maxVolgorde = categorieen.reduce((max, c) => Math.max(max, c.volgorde), 0);
     await supabase.from('boetecategorieen').insert({
-      naam: newNaam.trim(),
+      naam: newNaam.trim() || newTitel.trim(),
       titel: newTitel.trim() || null,
       bedrag,
       verdubbelbaar: newDubbel,
@@ -530,6 +533,13 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
     if (!isHoofdbeheerder) return;
     const newVal = !instellingen?.nul_euro_is_twee_euro;
     await supabase.from('app_instellingen').upsert({ id: 1, nul_euro_is_twee_euro: newVal });
+    onChanged();
+  }
+
+  async function toggleOngeoorloord() {
+    if (!isHoofdbeheerder) return;
+    const newVal = !(instellingen?.ongeoorloord_enabled ?? true);
+    await supabase.from('app_instellingen').upsert({ id: 1, ongeoorloord_enabled: newVal });
     onChanged();
   }
 
@@ -722,32 +732,6 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
         {teamboetes.length === 0 && <p className="text-center text-sm text-gray-400 py-4">Nog geen teamboetes toegevoegd</p>}
       </div>
 
-      {/* 0€ = 2€ toggle */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-        <button
-          onClick={toggleNulIsTwee}
-          disabled={!isHoofdbeheerder}
-          className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all ${
-            instellingen?.nul_euro_is_twee_euro ? 'border-blue-400 bg-blue-50' : 'border-gray-200'
-          } ${!isHoofdbeheerder ? 'cursor-default' : ''}`}
-        >
-          <div className="flex items-center gap-2">
-            <Settings className={`w-4 h-4 ${instellingen?.nul_euro_is_twee_euro ? 'text-blue-600' : 'text-gray-400'}`} />
-            <div className="text-left">
-              <span className={`text-sm font-medium block ${instellingen?.nul_euro_is_twee_euro ? 'text-blue-900' : 'text-gray-600'}`}>
-                0{String.fromCharCode(8364)} eind van de week = 2{String.fromCharCode(8364)}
-              </span>
-              <span className="text-xs text-gray-400">Blijft aan tot handmatig uitgeschakeld</span>
-            </div>
-          </div>
-          <div className={`w-10 h-6 rounded-full transition-colors flex items-center px-0.5 ${
-            instellingen?.nul_euro_is_twee_euro ? 'bg-blue-500 justify-end' : 'bg-gray-300 justify-start'
-          }`}>
-            <div className="w-5 h-5 bg-white rounded-full shadow-sm" />
-          </div>
-        </button>
-      </div>
-
       {/* Speciale regels */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
         <div className="flex items-center justify-between mb-3">
@@ -783,6 +767,58 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
         ) : (
           <p className="text-sm text-gray-600 whitespace-pre-wrap">{regelsTekstValue || 'Nog geen regels ingesteld'}</p>
         )}
+      </div>
+
+      {/* 0€ = 2€ toggle */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+        <button
+          onClick={toggleNulIsTwee}
+          disabled={!isHoofdbeheerder}
+          className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all ${
+            instellingen?.nul_euro_is_twee_euro ? 'border-blue-400 bg-blue-50' : 'border-gray-200'
+          } ${!isHoofdbeheerder ? 'cursor-default' : ''}`}
+        >
+          <div className="flex items-center gap-2">
+            <Settings className={`w-4 h-4 ${instellingen?.nul_euro_is_twee_euro ? 'text-blue-600' : 'text-gray-400'}`} />
+            <div className="text-left">
+              <span className={`text-sm font-medium block ${instellingen?.nul_euro_is_twee_euro ? 'text-blue-900' : 'text-gray-600'}`}>
+                0{String.fromCharCode(8364)} eind van de week = 2{String.fromCharCode(8364)}
+              </span>
+              <span className="text-xs text-gray-400">Blijft aan tot handmatig uitgeschakeld</span>
+            </div>
+          </div>
+          <div className={`w-10 h-6 rounded-full transition-colors flex items-center px-0.5 ${
+            instellingen?.nul_euro_is_twee_euro ? 'bg-blue-500 justify-end' : 'bg-gray-300 justify-start'
+          }`}>
+            <div className="w-5 h-5 bg-white rounded-full shadow-sm" />
+          </div>
+        </button>
+      </div>
+
+      {/* Ongeoorloord afwezig toggle */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+        <button
+          onClick={toggleOngeoorloord}
+          disabled={!isHoofdbeheerder}
+          className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 transition-all ${
+            (instellingen?.ongeoorloord_enabled ?? true) ? 'border-red-400 bg-red-50' : 'border-gray-200'
+          } ${!isHoofdbeheerder ? 'cursor-default' : ''}`}
+        >
+          <div className="flex items-center gap-2">
+            <UserX className={`w-4 h-4 ${(instellingen?.ongeoorloord_enabled ?? true) ? 'text-red-600' : 'text-gray-400'}`} />
+            <div className="text-left">
+              <span className={`text-sm font-medium block ${(instellingen?.ongeoorloord_enabled ?? true) ? 'text-red-900' : 'text-gray-600'}`}>
+                Ongeoorloord afwezig aan
+              </span>
+              <span className="text-xs text-gray-400">Uitzetten verberkt de optie bij invullen. Bestaande waardes blijven behouden.</span>
+            </div>
+          </div>
+          <div className={`w-10 h-6 rounded-full transition-colors flex items-center px-0.5 ${
+            (instellingen?.ongeoorloord_enabled ?? true) ? 'bg-red-500 justify-end' : 'bg-gray-300 justify-start'
+          }`}>
+            <div className="w-5 h-5 bg-white rounded-full shadow-sm" />
+          </div>
+        </button>
       </div>
     </div>
   );

@@ -135,6 +135,7 @@ export interface AppInstellingen {
   betaal_url: string | null;
   betaal_link_actief: boolean;
   gemini_api_key: string | null;
+  ongeoorloord_enabled: boolean;
   created_at: string;
   updated_at: string;
 }
