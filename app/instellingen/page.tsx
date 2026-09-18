@@ -107,7 +107,7 @@ function InstellingenContent() {
       ) : tab === 'boetelijst' ? (
         <BoetelijstTab categorieen={categorieen} instellingen={instellingen} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
       ) : tab === 'overig' ? (
-        <OverigTab categorieen={categorieen} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
+        <OverigTab categorieen={categorieen} profile={profile} spelers={spelers} isHoofdbeheerder={isHoofdbeheerder} onChanged={load} />
       ) : null}
     </div>
   );
@@ -989,8 +989,10 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
 // ============================================================
 // OVERIG TAB (Gemini key only)
 // ============================================================
-function OverigTab({ categorieen, isHoofdbeheerder, onChanged }: {
+function OverigTab({ categorieen, profile, spelers, isHoofdbeheerder, onChanged }: {
   categorieen: Boetecategorie[];
+  profile: Profile | null;
+  spelers: Speler[];
   isHoofdbeheerder: boolean;
   onChanged: () => void;
 }) {
@@ -1114,8 +1116,127 @@ Statistieken
     onChanged();
   }
 
+  // Personal settings state
+  const [editNaam, setEditNaam] = useState(false);
+  const [naamInput, setNaamInput] = useState('');
+  const [editEmail, setEditEmail] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+  const [editPassword, setEditPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [personalSaving, setPersonalSaving] = useState(false);
+  const [personalError, setPersonalError] = useState('');
+  const [personalSuccess, setPersonalSuccess] = useState('');
+
+  const linkedSpeler = spelers.find(s => s.profile_id === profile?.id);
+
+  async function saveNaam() {
+    if (!profile || !naamInput.trim()) return;
+    setPersonalSaving(true);
+    setPersonalError('');
+    const { error } = await supabase.from('profiles').update({ naam: naamInput.trim() }).eq('id', profile.id);
+    if (error) setPersonalError(error.message);
+    else { setEditNaam(false); setPersonalSuccess('Naam opgeslagen'); setTimeout(() => setPersonalSuccess(''), 2000); onChanged(); }
+    setPersonalSaving(false);
+  }
+
+  async function saveEmail() {
+    if (!profile || !emailInput.trim()) return;
+    setPersonalSaving(true);
+    setPersonalError('');
+    const { error } = await supabase.auth.updateUser({ email: emailInput.trim() });
+    if (error) setPersonalError(error.message);
+    else { setEditEmail(false); setPersonalSuccess('E-mailadres bijgewerkt. Mogelijk moet je dit bevestigen via de ontvangen mail.'); setTimeout(() => setPersonalSuccess(''), 3000); }
+    setPersonalSaving(false);
+  }
+
+  async function savePassword() {
+    if (!profile) return;
+    if (newPassword.length < 6) { setPersonalError('Wachtwoord moet minimaal 6 tekens lang zijn.'); return; }
+    if (newPassword !== confirmPassword) { setPersonalError('Wachtwoorden komen niet overeen.'); return; }
+    setPersonalSaving(true);
+    setPersonalError('');
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) setPersonalError(error.message);
+    else { setEditPassword(false); setNewPassword(''); setConfirmPassword(''); setPersonalSuccess('Wachtwoord gewijzigd'); setTimeout(() => setPersonalSuccess(''), 2000); }
+    setPersonalSaving(false);
+  }
+
   return (
     <div className="space-y-4">
+      {/* Persoonlijke instellingen */}
+      {profile && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-3">
+          <div className="flex items-center gap-2 mb-1">
+            <UserCircle className="w-4 h-4 text-gray-500" />
+            <h3 className="text-sm font-semibold text-gray-800">Mijn account</h3>
+          </div>
+
+          {personalError && <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{personalError}</p>}
+          {personalSuccess && <p className="text-xs text-green-600 bg-green-50 rounded-lg px-3 py-2">{personalSuccess}</p>}
+
+          {/* Gekoppelde naam (read-only) */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Gekoppelde naam</label>
+            <p className="text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2.5">{linkedSpeler ? linkedSpeler.naam : 'Niet gekoppeld aan een speler'}</p>
+          </div>
+
+          {/* Gebruikersnaam (editable) */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Gebruikersnaam</label>
+              {!editNaam && <button onClick={() => { setNaamInput(profile.naam || ''); setEditNaam(true); }} className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50"><Pencil className="w-3 h-3" /></button>}
+            </div>
+            {editNaam ? (
+              <div className="flex gap-2">
+                <input type="text" value={naamInput} onChange={e => setNaamInput(e.target.value)} className="flex-1 px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <button onClick={saveNaam} disabled={personalSaving} className="w-8 h-8 bg-green-600 text-white rounded-lg flex items-center justify-center hover:bg-green-700 disabled:opacity-60"><Check className="w-3.5 h-3.5" /></button>
+                <button onClick={() => setEditNaam(false)} className="w-8 h-8 bg-gray-100 text-gray-500 rounded-lg flex items-center justify-center hover:bg-gray-200"><X className="w-3.5 h-3.5" /></button>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2.5">{profile.naam || 'Niet ingesteld'}</p>
+            )}
+          </div>
+
+          {/* Email (editable) */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">E-mailadres</label>
+              {!editEmail && <button onClick={() => { setEmailInput(profile.email || ''); setEditEmail(true); }} className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50"><Pencil className="w-3 h-3" /></button>}
+            </div>
+            {editEmail ? (
+              <div className="flex gap-2">
+                <input type="email" value={emailInput} onChange={e => setEmailInput(e.target.value)} className="flex-1 px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <button onClick={saveEmail} disabled={personalSaving} className="w-8 h-8 bg-green-600 text-white rounded-lg flex items-center justify-center hover:bg-green-700 disabled:opacity-60"><Check className="w-3.5 h-3.5" /></button>
+                <button onClick={() => setEditEmail(false)} className="w-8 h-8 bg-gray-100 text-gray-500 rounded-lg flex items-center justify-center hover:bg-gray-200"><X className="w-3.5 h-3.5" /></button>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-700 bg-gray-50 rounded-lg px-3 py-2.5">{profile.email}</p>
+            )}
+          </div>
+
+          {/* Password (editable) */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Wachtwoord</label>
+              {!editPassword && <button onClick={() => setEditPassword(true)} className="p-1 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50"><Pencil className="w-3 h-3" /></button>}
+            </div>
+            {editPassword ? (
+              <div className="space-y-2">
+                <input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Nieuw wachtwoord" minLength={6} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} placeholder="Bevestig wachtwoord" minLength={6} className="w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <div className="flex gap-2">
+                  <button onClick={savePassword} disabled={personalSaving} className="flex-1 bg-green-600 text-white font-semibold py-2 rounded-lg text-sm hover:bg-green-700 disabled:opacity-60">Opslaan</button>
+                  <button onClick={() => { setEditPassword(false); setNewPassword(''); setConfirmPassword(''); }} className="px-4 bg-gray-100 text-gray-500 font-semibold rounded-lg text-sm hover:bg-gray-200">Annuleren</button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 bg-gray-50 rounded-lg px-3 py-2.5">••••••••</p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* App regels — uitvouwen */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <button

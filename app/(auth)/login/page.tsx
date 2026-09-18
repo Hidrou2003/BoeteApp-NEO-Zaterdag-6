@@ -66,7 +66,7 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/(auth)/login`,
+      redirectTo: `${window.location.origin}/reset-wachtwoord`,
     });
     if (error) {
       setError(error.message || 'Kon geen resetmail versturen. Probeer het opnieuw.');
