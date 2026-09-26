@@ -576,8 +576,8 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
   const [regelsTekst, setRegelsTekst] = useState('');
 
   const actief = categorieen.filter(c => c.actief && !c.naam.startsWith(REGELS_PREFIX));
-  const regulier = actief.filter(c => !c.is_teamboete);
-  const teamboetes = actief.filter(c => c.is_teamboete);
+  const regulier = actief.filter(c => !c.is_teamboete).sort((a, b) => (a.titel || a.naam).localeCompare(b.titel || b.naam, 'nl'));
+  const teamboetes = actief.filter(c => c.is_teamboete).sort((a, b) => (a.titel || a.naam).localeCompare(b.titel || b.naam, 'nl'));
   const regelsTekstValue = extractRegelsTekst(categorieen);
 
   async function handleAdd(e: React.FormEvent) {
@@ -606,12 +606,14 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
   }
 
   async function handleEditSave(cat: Boetecategorie) {
-    if (!editNaam.trim()) return;
+    if (!editTitel.trim() && !editNaam.trim()) return;
     setSaving(true);
     const bedrag = Math.round(parseFloat(editBedrag.replace(',', '.')) * 100) || 0;
+    const titel = editTitel.trim() || null;
+    const naam = editNaam.trim() || titel || editTitel.trim();
     await supabase.from('boetecategorieen').update({
-      naam: editNaam.trim(),
-      titel: editTitel.trim() || null,
+      naam,
+      titel,
       bedrag,
       verdubbelbaar: editDubbel,
       open_bedrag: editOpenBedrag,

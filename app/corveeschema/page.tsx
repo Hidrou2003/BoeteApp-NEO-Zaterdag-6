@@ -269,13 +269,24 @@ function CorveeschemaContent() {
           <p className="text-sm text-gray-500">NEO Zaterdag 6 — Seizoen 2026/2027</p>
         </div>
         {isBeheerder && (
-          <button
-            onClick={() => { setShowGenerator(!showGenerator); setGenResult(null); setGenError(''); }}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition-colors shadow-sm"
-          >
-            <Sparkles className="w-4 h-4" />
-            Nieuw schema
-          </button>
+          <div className="flex gap-2">
+            {showGenerator && (
+              <button
+                onClick={() => { setShowGenerator(false); setGenResult(null); setGenError(''); }}
+                className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold px-4 py-2.5 rounded-xl text-sm transition-colors"
+              >
+                <X className="w-4 h-4" />
+                Annuleren
+              </button>
+            )}
+            <button
+              onClick={() => { setShowGenerator(!showGenerator); setGenResult(null); setGenError(''); }}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition-colors shadow-sm"
+            >
+              <Sparkles className="w-4 h-4" />
+              {showGenerator ? 'Sluiten' : 'Nieuw schema'}
+            </button>
+          </div>
         )}
       </div>
 

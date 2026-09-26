@@ -347,17 +347,47 @@ function MijnBoeteTab({ profile }: { profile: Profile | null }) {
 
   const grandTotal = weken.reduce((sum, w) => sum + w.weekTotaal, 0);
 
+  const boeteCountMap = new Map<string, number>();
+  for (const w of weken) {
+    for (const act of w.activiteiten) {
+      for (const item of act.items) {
+        boeteCountMap.set(item.naam, (boeteCountMap.get(item.naam) ?? 0) + item.aantal);
+      }
+    }
+  }
+  const top3Boetes = Array.from(boeteCountMap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
+
   return (
     <div className="space-y-3">
-      <div className="bg-blue-600 text-white rounded-2xl p-5 flex items-center gap-4">
-        <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center">
-          <Wallet className="w-6 h-6" />
+      <div className="bg-blue-50 rounded-2xl border border-blue-100 px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Wallet className="w-4 h-4 text-blue-600" />
+          <p className="text-sm font-semibold text-gray-900">Totaal {spelerNaam ?? 'mijn boetes'}</p>
         </div>
-        <div>
-          <p className="text-blue-200 text-sm font-medium">Totaal {spelerNaam ?? 'mijn boetes'}</p>
-          <p className="text-3xl font-bold">{formatBedrag(grandTotal)}</p>
-        </div>
+        <span className="text-base font-bold text-blue-700">{formatBedrag(grandTotal)}</span>
       </div>
+
+      {top3Boetes.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Trophy className="w-4 h-4 text-amber-500" />
+            <p className="text-sm font-semibold text-gray-900">Mijn top 3 boetes</p>
+          </div>
+          <div className="space-y-2">
+            {top3Boetes.map(([naam, count], idx) => (
+              <div key={naam} className="flex items-center gap-3">
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${idx === 0 ? 'bg-amber-100 text-amber-700' : idx === 1 ? 'bg-gray-200 text-gray-600' : 'bg-orange-100 text-orange-700'}`}>
+                  {idx + 1}
+                </div>
+                <span className="flex-1 text-sm font-medium text-gray-800 truncate">{naam}</span>
+                <span className="text-xs font-bold text-gray-600">{count}x</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {weken.map(week => (
         <div key={week.weekKey} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">

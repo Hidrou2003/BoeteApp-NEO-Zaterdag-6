@@ -185,59 +185,63 @@ export default function AfgerondTab({ screenshots, spelers, weken, onChanged }: 
 
     const weekData = weekDataMap.get(weekKey);
 
-    const scanPromises = fileArray.map(async (file, fi) => {
-      const fileName = `${weekKey}/${Date.now()}-${fi}-${file.name}`;
-      const { error: uploadError } = await supabase.storage
-        .from('bank-screenshots')
-        .upload(fileName, file);
-
-      if (uploadError) throw new Error(`Upload mislukt (${file.name}): ${uploadError.message}`);
-
-      const arrayBuffer = await file.arrayBuffer();
-      const bytes = new Uint8Array(arrayBuffer);
-      let binary = '';
-      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-      const base64Image = btoa(binary);
-
-      const response = await fetch('/api/scan-screenshot', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageData: base64Image, mimeType: file.type, geminiKey }),
-      });
-
-      if (!response.ok) {
-        const errBody = await response.json().catch(() => ({}));
-        const diagnostics = [
-          errBody.error ?? `Scan faalde (${response.status})`,
-          errBody.model ? `Model: ${errBody.model}` : '',
-          errBody.details ? `Details: ${errBody.details}` : '',
-        ].filter(Boolean).join(' | ');
-        throw new Error(`Scan mislukt (${file.name}): ${diagnostics}`);
-      }
-
-      const { transactions } = await response.json() as {
-        transactions: { naam: string; bedrag: string; bedrag_cents: number; datum: string | null }[];
-      };
-
-      await supabase.from('bank_screenshots').insert({
-        week_key: weekKey,
-        storage_path: fileName,
-        ocr_result: transactions.map(t => ({
-          naam: t.naam,
-          bedrag: t.bedrag,
-          bedrag_cents: t.bedrag_cents,
-          speler_id: null,
-          matched_status: null,
-        })) as OcrEntry[],
-      });
-
-      return transactions.map(t => ({ naam: t.naam, bedrag_cents: t.bedrag_cents }));
-    });
-
-    let allRawEntries: { naam: string; bedrag_cents: number }[];
+    const allRawEntries: { naam: string; bedrag_cents: number }[] = [];
     try {
-      const results = await Promise.all(scanPromises);
-      allRawEntries = results.flat();
+      for (let fi = 0; fi < fileArray.length; fi++) {
+        const file = fileArray[fi];
+        setScanStatus(`Screenshot ${fi + 1}/${fileArray.length} scannen met AI...`);
+
+        const fileName = `${weekKey}/${Date.now()}-${fi}-${file.name}`;
+        const { error: uploadError } = await supabase.storage
+          .from('bank-screenshots')
+          .upload(fileName, file);
+
+        if (uploadError) throw new Error(`Upload mislukt (${file.name}): ${uploadError.message}`);
+
+        const arrayBuffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        const base64Image = btoa(binary);
+
+        const response = await fetch('/api/scan-screenshot', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageData: base64Image, mimeType: file.type, geminiKey }),
+        });
+
+        if (!response.ok) {
+          const errBody = await response.json().catch(() => ({}));
+          const diagnostics = [
+            errBody.error ?? `Scan faalde (${response.status})`,
+            errBody.model ? `Model: ${errBody.model}` : '',
+            errBody.details ? `Details: ${errBody.details}` : '',
+          ].filter(Boolean).join(' | ');
+          throw new Error(`Scan mislukt (${file.name}): ${diagnostics}`);
+        }
+
+        const { transactions } = await response.json() as {
+          transactions: { naam: string; bedrag: string; bedrag_cents: number; datum: string | null }[];
+        };
+
+        await supabase.from('bank_screenshots').insert({
+          week_key: weekKey,
+          storage_path: fileName,
+          ocr_result: transactions.map(t => ({
+            naam: t.naam,
+            bedrag: t.bedrag,
+            bedrag_cents: t.bedrag_cents,
+            speler_id: null,
+            matched_status: null,
+          })) as OcrEntry[],
+        });
+
+        allRawEntries.push(...transactions.map(t => ({ naam: t.naam, bedrag_cents: t.bedrag_cents })));
+
+        if (fi < fileArray.length - 1) {
+          await new Promise(r => setTimeout(r, 500));
+        }
+      }
     } catch (err: any) {
       setUploading(false);
       setScanStatus('');

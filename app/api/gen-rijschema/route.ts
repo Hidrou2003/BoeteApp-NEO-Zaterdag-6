@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
 
@@ -13,13 +14,23 @@ interface RijschemaEntry {
   is_fiets?: boolean;
 }
 
+async function getGeminiKey(): Promise<string | null> {
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceKey) return null;
+  const admin = createClient(supabaseUrl, serviceKey);
+  const { data } = await admin
+    .from('boetecategorieen')
+    .select('naam')
+    .like('naam', '__GEMINI__%')
+    .limit(1);
+  if (!data || data.length === 0) return null;
+  return data[0].naam.slice('__GEMINI__'.length).trim();
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { geminiKey, spelers, wedstrijden, chauffeursPerWedstrijd } = await req.json();
-
-    if (!geminiKey) {
-      return NextResponse.json({ error: 'Geen Gemini API-sleutel geconfigureerd. Voeg je sleutel toe onder Instellingen > Overig.' }, { status: 400 });
-    }
+    const { spelers, wedstrijden, chauffeursPerWedstrijd } = await req.json();
 
     if (!spelers || spelers.length === 0) {
       return NextResponse.json({ error: 'Geen spelers geselecteerd.' }, { status: 400 });
@@ -29,7 +40,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Geen wedstrijden/datums opgegeven.' }, { status: 400 });
     }
 
-    const prompt = `Je bent een hulp bij het maken van een rijschema voor een voetbalteam. Je krijgt een lijst spelers, een lijst wedstrijden (met optioneel tijd en tegenstander), en hoeveel chauffeurs per wedstrijd nodig zijn.
+    let geminiKey: string | null = null;
+    try {
+      geminiKey = await getGeminiKey();
+    } catch (fetchErr) {
+      console.error('Failed to fetch Gemini key from DB:', fetchErr);
+    }
+
+    if (!geminiKey) {
+      return NextResponse.json(
+        { error: 'Geen Gemini API-sleutel gevonden in de instellingen. Stel deze in onder Instellingen > Overig.' },
+        { status: 400 }
+      );
+    }
+
+    const prompt = `Je bent een hulp bij het maken van een rijschema voor een voetbalteam. Je krijgt een lijst spelers, een lijst wedstrijden (met optioneel tijd en tegenstander), en hoeveel chauffeurs per wedstrijd nodig is.
 
 Spelers: ${JSON.stringify(spelers)}
 Aantal chauffeurs per wedstrijd: ${chauffeursPerWedstrijd}
@@ -45,9 +70,8 @@ Regels:
 
 Geef het antwoord als een JSON array met objecten die "datum", "tijd", "wedstrijd", "chauffeurs" (array van namen) en "is_fiets" (boolean) bevatten. Geef alleen de JSON array, geen andere tekst.`;
 
-    const genAI = new GoogleGenerativeAI(geminiKey.trim());
-
     try {
+      const genAI = new GoogleGenerativeAI(geminiKey.trim());
       const model = genAI.getGenerativeModel({
         model: MODEL_NAME,
         generationConfig: { temperature: 0.7, responseMimeType: 'application/json' },
@@ -74,10 +98,13 @@ Geef het antwoord als een JSON array met objecten die "datum", "tijd", "wedstrij
 
       return NextResponse.json({ entries });
     } catch (err: unknown) {
+      console.error('Gemini API error in gen-rijschema:', err);
       const details = err instanceof Error ? err.message : String(err);
       return NextResponse.json({ error: 'Gemini API-aanroep mislukt', details }, { status: 502 });
     }
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error('Unexpected error in gen-rijschema:', err);
+    const msg = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

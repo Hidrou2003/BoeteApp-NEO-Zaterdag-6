@@ -261,7 +261,18 @@ function StatistiekenContent() {
                   </tr>
                 </thead>
                 <tbody>
-                  {spelers.filter(s => totaalStats[s.id]).map(sp => {
+                  {spelers.filter(s => totaalStats[s.id]).sort((a, b) => {
+                    const ta = totaalStats[a.id];
+                    const tb = totaalStats[b.id];
+                    const sumA = ta.goals + ta.assists;
+                    const sumB = tb.goals + tb.assists;
+                    if (sumB !== sumA) return sumB - sumA;
+                    if (tb.goals !== ta.goals) return tb.goals - ta.goals;
+                    if (ta.eigen_goals !== tb.eigen_goals) return ta.eigen_goals - tb.eigen_goals;
+                    if (ta.rode_kaarten !== tb.rode_kaarten) return ta.rode_kaarten - tb.rode_kaarten;
+                    if (ta.gele_kaarten !== tb.gele_kaarten) return ta.gele_kaarten - tb.gele_kaarten;
+                    return a.naam.localeCompare(b.naam, 'nl');
+                  }).map(sp => {
                     const t = totaalStats[sp.id];
                     return (
                       <tr key={sp.id} className="border-b border-gray-50 last:border-0">
