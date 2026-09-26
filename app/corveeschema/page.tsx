@@ -105,12 +105,6 @@ function CorveeschemaContent() {
       return;
     }
 
-    if (!geminiKey) {
-      setGenError('Geen Gemini API-sleutel gevonden. Stel deze in onder Instellingen > Overig.');
-      setGenerating(false);
-      return;
-    }
-
     try {
       const resp = await fetch('/api/gen-corveeschema', {
         method: 'POST',
@@ -269,24 +263,13 @@ function CorveeschemaContent() {
           <p className="text-sm text-gray-500">NEO Zaterdag 6 — Seizoen 2026/2027</p>
         </div>
         {isBeheerder && (
-          <div className="flex gap-2">
-            {showGenerator && (
-              <button
-                onClick={() => { setShowGenerator(false); setGenResult(null); setGenError(''); }}
-                className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold px-4 py-2.5 rounded-xl text-sm transition-colors"
-              >
-                <X className="w-4 h-4" />
-                Annuleren
-              </button>
-            )}
-            <button
-              onClick={() => { setShowGenerator(!showGenerator); setGenResult(null); setGenError(''); }}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition-colors shadow-sm"
-            >
-              <Sparkles className="w-4 h-4" />
-              {showGenerator ? 'Sluiten' : 'Nieuw schema'}
-            </button>
-          </div>
+          <button
+            onClick={() => { setShowGenerator(!showGenerator); setGenResult(null); setGenError(''); }}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2.5 rounded-xl text-sm transition-colors shadow-sm"
+          >
+            <Sparkles className="w-4 h-4" />
+            {showGenerator ? 'Sluiten' : 'Nieuw schema'}
+          </button>
         )}
       </div>
 
@@ -406,13 +389,22 @@ function CorveeschemaContent() {
           )}
 
           {!genResult && (
-            <button
-              onClick={manualMode ? startManualSchema : handleGenerate}
-              disabled={generating || (manualMode ? false : selectedSpelers.length === 0)}
-              className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
-            >
-              {generating ? <><RefreshCw className="w-4 h-4 animate-spin" /> Genereren...</> : manualMode ? <><Hand className="w-4 h-4" /> Handmatig schema maken</> : <><Sparkles className="w-4 h-4" /> Schema genereren</>}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setShowGenerator(false); setGenResult(null); setGenError(''); }}
+                className="flex items-center justify-center gap-2 bg-red-50 hover:bg-red-100 text-red-600 font-semibold px-4 py-3.5 rounded-xl transition-colors text-sm border border-red-200"
+              >
+                <X className="w-4 h-4" />
+                Annuleren
+              </button>
+              <button
+                onClick={manualMode ? startManualSchema : handleGenerate}
+                disabled={generating || (manualMode ? false : selectedSpelers.length === 0)}
+                className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3.5 rounded-xl transition-colors text-sm disabled:opacity-60 disabled:cursor-not-allowed shadow-sm"
+              >
+                {generating ? <><RefreshCw className="w-4 h-4 animate-spin" /> Genereren...</> : manualMode ? <><Hand className="w-4 h-4" /> Handmatig schema maken</> : <><Sparkles className="w-4 h-4" /> Schema genereren</>}
+              </button>
+            </div>
           )}
 
           {/* Result preview */}

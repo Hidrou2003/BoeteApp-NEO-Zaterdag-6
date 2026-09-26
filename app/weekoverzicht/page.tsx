@@ -492,6 +492,7 @@ function AlleBoetesTab() {
   const [expandedWeek, setExpandedWeek] = useState<string | null>(null);
   const [expandedSpeler, setExpandedSpeler] = useState<string | null>(null);
   const [expandedAct, setExpandedAct] = useState<string | null>(null);
+  const [expandedTopBoete, setExpandedTopBoete] = useState<string | null>(null);
 
   useEffect(() => { load(); }, []);
 
@@ -618,6 +619,24 @@ function AlleBoetesTab() {
   }
   const podiumSpelers = Array.from(podiumMap.values()).sort((a, b) => b.totaal - a.totaal).slice(0, 3);
 
+  const boeteCountMap = new Map<string, number>();
+  const boeteSpelerMap = new Map<string, Map<string, number>>();
+  for (const w of weken) {
+    for (const sp of w.spelers) {
+      for (const act of sp.activiteiten) {
+        for (const item of act.items) {
+          boeteCountMap.set(item.naam, (boeteCountMap.get(item.naam) ?? 0) + item.aantal);
+          if (!boeteSpelerMap.has(item.naam)) boeteSpelerMap.set(item.naam, new Map());
+          const spMap = boeteSpelerMap.get(item.naam)!;
+          spMap.set(sp.speler.naam, (spMap.get(sp.speler.naam) ?? 0) + item.aantal);
+        }
+      }
+    }
+  }
+  const top3Boetes = Array.from(boeteCountMap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3);
+
   return (
     <div className="space-y-3">
       <div className="bg-blue-50 rounded-2xl border border-blue-100 px-4 py-3 flex items-center justify-between">
@@ -628,6 +647,47 @@ function AlleBoetesTab() {
         <span className="text-base font-bold text-blue-700">{formatBedrag(grandTotal)}</span>
       </div>
       {podiumSpelers.length > 0 && <FinePodium spelers={podiumSpelers} />}
+
+      {top3Boetes.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Trophy className="w-4 h-4 text-amber-500" />
+            <p className="text-sm font-semibold text-gray-900">Top 3 boetes</p>
+          </div>
+          <div className="space-y-2">
+            {top3Boetes.map(([naam, count], idx) => {
+              const isExpanded = expandedTopBoete === naam;
+              const spelerCounts = Array.from((boeteSpelerMap.get(naam) ?? new Map()).entries())
+                .sort((a, b) => b[1] - a[1]);
+              return (
+                <div key={naam} className="rounded-xl border border-gray-100 overflow-hidden">
+                  <button
+                    onClick={() => setExpandedTopBoete(isExpanded ? null : naam)}
+                    className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-gray-50 transition-colors"
+                  >
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${idx === 0 ? 'bg-amber-100 text-amber-700' : idx === 1 ? 'bg-gray-200 text-gray-600' : 'bg-orange-100 text-orange-700'}`}>
+                      {idx + 1}
+                    </div>
+                    <span className="flex-1 text-sm font-medium text-gray-800 truncate">{naam}</span>
+                    <span className="text-xs font-bold text-gray-600">{count}x</span>
+                    {isExpanded ? <ChevronUp className="w-3.5 h-3.5 text-gray-400" /> : <ChevronDown className="w-3.5 h-3.5 text-gray-400" />}
+                  </button>
+                  {isExpanded && (
+                    <div className="px-4 pb-3 pt-1 space-y-1 bg-gray-50">
+                      {spelerCounts.map(([spelerNaam, sc]) => (
+                        <div key={spelerNaam} className="flex justify-between text-xs">
+                          <span className="text-gray-600">{spelerNaam}</span>
+                          <span className="font-semibold text-gray-700">{sc}x</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {weken.map(week => (
         <div key={week.weekKey} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">

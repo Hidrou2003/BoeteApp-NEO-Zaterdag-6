@@ -572,6 +572,7 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
   const [editDubbel, setEditDubbel] = useState(false);
   const [editOpenBedrag, setEditOpenBedrag] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [editingRegels, setEditingRegels] = useState(false);
   const [regelsTekst, setRegelsTekst] = useState('');
 
@@ -582,7 +583,11 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
-    if (!newNaam.trim() && !newTitel.trim()) return;
+    if (!newNaam.trim() && !newTitel.trim()) {
+      setSaveError('Geen boeteregel ingevuld. Vul minimaal een titel of omschrijving in.');
+      return;
+    }
+    setSaveError(null);
     setSaving(true);
     const bedrag = Math.round(parseFloat(newBedrag.replace(',', '.')) * 100) || 0;
     const maxVolgorde = categorieen.reduce((max, c) => Math.max(max, c.volgorde), 0);
@@ -606,7 +611,11 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
   }
 
   async function handleEditSave(cat: Boetecategorie) {
-    if (!editTitel.trim() && !editNaam.trim()) return;
+    if (!editTitel.trim() && !editNaam.trim()) {
+      setSaveError('Geen boeteregel ingevuld. Vul minimaal een titel of omschrijving in.');
+      return;
+    }
+    setSaveError(null);
     setSaving(true);
     const bedrag = Math.round(parseFloat(editBedrag.replace(',', '.')) * 100) || 0;
     const titel = editTitel.trim() || null;
@@ -677,11 +686,12 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
 
   function startEdit(cat: Boetecategorie) {
     setEditingId(cat.id);
-    setEditNaam(cat.naam);
+    setEditNaam(cat.titel && cat.naam === cat.titel ? '' : cat.naam);
     setEditTitel(cat.titel ?? '');
     setEditBedrag((cat.bedrag / 100).toFixed(2).replace('.', ','));
     setEditDubbel(cat.verdubbelbaar);
     setEditOpenBedrag(cat.open_bedrag);
+    setSaveError(null);
   }
 
   function renderCatCard(cat: Boetecategorie, isTeam: boolean) {
@@ -710,6 +720,9 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
             </div>
             <DubbelToggle value={editDubbel} onChange={setEditDubbel} />
             <OpenBedragToggle value={editOpenBedrag} onChange={setEditOpenBedrag} />
+            {saveError && (
+              <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{saveError}</p>
+            )}
             <div className="flex gap-2">
               <button onClick={() => handleEditSave(cat)} disabled={saving} className="flex-1 bg-green-600 text-white font-semibold py-3 rounded-xl hover:bg-green-700 transition-colors disabled:opacity-60 text-sm flex items-center justify-center gap-2">
                 <Check className="w-4 h-4" /> Opslaan
@@ -786,6 +799,9 @@ function BoetelijstTab({ categorieen, instellingen, isHoofdbeheerder, onChanged 
             </div>
             <DubbelToggle value={newDubbel} onChange={setNewDubbel} />
             <OpenBedragToggle value={newOpenBedrag} onChange={setNewOpenBedrag} />
+            {saveError && (
+              <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{saveError}</p>
+            )}
             <button
               type="button"
               onClick={() => setNewIsTeam(!newIsTeam)}
