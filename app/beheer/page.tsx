@@ -52,6 +52,8 @@ function BeheerContent() {
     setLoading(true);
 
     try {
+      console.log('Bezig met ophalen voor teamId:', teamId);
+
       // 1. Haal alle teamleden op voor dit team
       const { data: membersData, error: membersError } = await supabase
         .from('team_members')
@@ -61,6 +63,8 @@ function BeheerContent() {
       if (membersError) {
         console.error('Fout bij ophalen team_members:', membersError);
       }
+
+      console.log('Opgehaalde teamleden:', membersData);
 
       if (!membersData || membersData.length === 0) {
         setMembers([]);
@@ -73,40 +77,36 @@ function BeheerContent() {
         .map((m) => m.user_id)
         .filter((id): id is string => Boolean(id));
 
-      // 3. Haal profielen en spelers op
+      // 3. Haal profielen op
       let profilesMap = new Map();
       if (userIds.length > 0) {
-        const { data: profilesData } = await supabase
+        const { data: profilesData, error: profError } = await supabase
           .from('profiles')
           .select('id, email, naam')
           .in('id', userIds);
+
+        if (profError) {
+          console.warn('Kon profiles niet ophalen (mogelijk RLS):', profError);
+        }
 
         if (profilesData) {
           profilesMap = new Map(profilesData.map((p) => [p.id, p]));
         }
       }
 
-      const { data: spelersData } = await supabase
-        .from('spelers')
-        .select('id, naam, user_id, team_id')
-        .eq('team_id', teamId);
-
-      const spelersMap = new Map(spelersData?.map((s) => [s.user_id, s.naam]));
-
-      // 4. Combineer de gegevens
+      // 4. Combineer de gegevens met fallback zodat er altijd rijen getoond worden
       const formattedMembers = membersData.map((m) => {
         const prof = profilesMap.get(m.user_id);
-        const spelerNaam = spelersMap.get(m.user_id);
-
         return {
           ...m,
-          profiles: prof || (spelerNaam ? { naam: spelerNaam, email: '' } : null),
+          profiles: prof || { naam: `Teamlid (${m.user_id.substring(0, 6)}...)`, email: '' },
         };
       });
 
+      console.log('Gefiatteerde leden voor weergave:', formattedMembers);
       setMembers(formattedMembers);
     } catch (err) {
-      console.error('Fout bij ophalen leden:', err);
+      console.error('Fout in load functie:', err);
       setMembers([]);
     } finally {
       setLoading(false);
@@ -186,6 +186,10 @@ function BeheerContent() {
           {[1, 2, 3].map((i) => (
             <div key={i} className="h-16 bg-gray-100 rounded-2xl animate-pulse" />
           ))}
+        </div>
+      ) : members.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 p-6 text-center text-sm text-gray-500">
+          Geen teamleden gevonden voor dit team.
         </div>
       ) : (
         <div className="space-y-3">
