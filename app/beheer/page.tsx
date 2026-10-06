@@ -42,8 +42,10 @@ function BeheerContent() {
   const teamId = activeTeam?.id;
 
   useEffect(() => {
-    if (teamId) load();
-  }, [teamId]);
+    if (teamId) {
+      load();
+    }
+  }, [teamId, activeTeam]);
 
   async function load() {
     if (!teamId) return;
@@ -54,10 +56,13 @@ function BeheerContent() {
       const { data: membersData, error: membersError } = await supabase
         .from('team_members')
         .select('*')
-        .eq('team_id', teamId)
-        .order('joined_at');
+        .eq('team_id', teamId);
 
-      if (membersError || !membersData || membersData.length === 0) {
+      if (membersError) {
+        console.error('Fout bij ophalen team_members:', membersError);
+      }
+
+      if (!membersData || membersData.length === 0) {
         setMembers([]);
         setLoading(false);
         return;
@@ -68,20 +73,36 @@ function BeheerContent() {
         .map((m) => m.user_id)
         .filter((id): id is string => Boolean(id));
 
-      // 3. Haal de profielen op uit de profiles tabel
-      const { data: profilesData } = await supabase
-        .from('profiles')
-        .select('id, email, naam')
-        .in('id', userIds);
+      // 3. Haal profielen en spelers op
+      let profilesMap = new Map();
+      if (userIds.length > 0) {
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('id, email, naam')
+          .in('id', userIds);
 
-      // Maak een map om snel op ID te kunnen zoeken
-      const profilesMap = new Map(profilesData?.map((p) => [p.id, p]));
+        if (profilesData) {
+          profilesMap = new Map(profilesData.map((p) => [p.id, p]));
+        }
+      }
 
-      // 4. Voeg de profieldata samen met de teamleden
-      const formattedMembers = membersData.map((m) => ({
-        ...m,
-        profiles: profilesMap.get(m.user_id) || null,
-      }));
+      const { data: spelersData } = await supabase
+        .from('spelers')
+        .select('id, naam, user_id, team_id')
+        .eq('team_id', teamId);
+
+      const spelersMap = new Map(spelersData?.map((s) => [s.user_id, s.naam]));
+
+      // 4. Combineer de gegevens
+      const formattedMembers = membersData.map((m) => {
+        const prof = profilesMap.get(m.user_id);
+        const spelerNaam = spelersMap.get(m.user_id);
+
+        return {
+          ...m,
+          profiles: prof || (spelerNaam ? { naam: spelerNaam, email: '' } : null),
+        };
+      });
 
       setMembers(formattedMembers);
     } catch (err) {
