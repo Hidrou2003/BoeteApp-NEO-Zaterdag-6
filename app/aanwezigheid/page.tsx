@@ -5,8 +5,8 @@ import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { supabase, AanwezigheidDatum, AanwezigheidEvenement, AanwezigheidResponse, AanwezigheidType, Speler } from '@/lib/supabase';
-import { CalendarCheck, ChevronLeft, ChevronRight, Plus, Save, Trash2, Users, X, Clock, AlertTriangle, Check, Settings } from 'lucide-react';
-import { addMonths, eachDayOfInterval, endOfMonth, format, parseISO, startOfMonth, subMonths, subDays } from 'date-fns';
+import { CalendarCheck, ChevronLeft, ChevronRight, Plus, Save, Trash2, Users, X, Clock, AlertTriangle, Check, Settings, Search } from 'lucide-react';
+import { addMonths, eachDayOfInterval, endOfMonth, format, parseISO, startOfMonth, subMonths, subDays, isToday, isSameDay } from 'date-fns';
 import { nl } from 'date-fns/locale';
 
 export default function AanwezigheidPage() {
@@ -19,20 +19,28 @@ export default function AanwezigheidPage() {
   );
 }
 
+interface AllDatumWithEvent extends AanwezigheidDatum {
+  evenement_naam: string;
+  evenement: AanwezigheidEvenement;
+}
+
 function AanwezigheidContent() {
   const { profile } = useAuth();
   const isHoofdbeheerder = profile?.rol === 'hoofdbeheerder';
   const [evenementen, setEvenementen] = useState<AanwezigheidEvenement[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [datums, setDatums] = useState<AanwezigheidDatum[]>([]);
-  const [responses, setResponses] = useState<AanwezigheidResponse[]>([]);
+  const [allDatums, setAllDatums] = useState<AllDatumWithEvent[]>([]);
+  const [allResponses, setAllResponses] = useState<AanwezigheidResponse[]>([]);
   const [spelers, setSpelers] = useState<Speler[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showTypeModal, setShowTypeModal] = useState(false);
+  const [selectedEventIds, setSelectedEventIds] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState('');
+  const [selectedDatumId, setSelectedDatumId] = useState<string | null>(null);
+  const [confirmDeleteDatum, setConfirmDeleteDatum] = useState<string | null>(null);
 
-  async function loadEvenementen() {
+  async function loadAll() {
     setLoading(true);
     const [{ data: events }, { data: activeSpelers }] = await Promise.all([
       supabase.from('aanwezigheid_evenementen').select('*, aanwezigheid_types(*)').order('deadline', { ascending: false }),
@@ -41,39 +49,99 @@ function AanwezigheidContent() {
     const nextEvents = (events ?? []) as AanwezigheidEvenement[];
     setEvenementen(nextEvents);
     setSpelers((activeSpelers ?? []) as Speler[]);
-    const nextId = selectedId && nextEvents.some(e => e.id === selectedId) ? selectedId : nextEvents[0]?.id ?? null;
-    setSelectedId(nextId);
-    if (nextId) await loadEventData(nextId);
-    else { setDatums([]); setResponses([]); }
+
+    const eventIds = nextEvents.map(e => e.id);
+    let datumsList: AllDatumWithEvent[] = [];
+    let responsesList: AanwezigheidResponse[] = [];
+    if (eventIds.length > 0) {
+      const [{ data: allDates }, { data: allResps }] = await Promise.all([
+        supabase.from('aanwezigheid_datums').select('*').in('evenement_id', eventIds).order('datum'),
+        supabase.from('aanwezigheid_responses').select('*, spelers(*)').in('evenement_id', eventIds),
+      ]);
+      datumsList = ((allDates ?? []) as AanwezigheidDatum[]).map(d => {
+        const ev = nextEvents.find(e => e.id === d.evenement_id);
+        return { ...d, evenement_naam: ev?.naam ?? '', evenement: ev as AanwezigheidEvenement };
+      });
+      responsesList = (allResps ?? []) as AanwezigheidResponse[];
+    }
+    setAllDatums(datumsList);
+    setAllResponses(responsesList);
+
+    if (selectedEventIds.size === 0 && nextEvents.length > 0) {
+      setSelectedEventIds(new Set(nextEvents.map(e => e.id)));
+    }
+
+    if (datumsList.length > 0) {
+      const now = new Date();
+      const upcoming = datumsList
+        .filter(d => {
+          const dDate = new Date(d.datum + 'T00:00:00');
+          if (d.tijd) {
+            const fullDate = new Date(d.datum + 'T' + d.tijd);
+            return fullDate.getTime() >= now.getTime();
+          }
+          const endOfDay = new Date(dDate);
+          endOfDay.setHours(23, 59, 59, 999);
+          return endOfDay.getTime() >= now.getTime();
+        })
+        .sort((a, b) => {
+          const aTime = a.tijd ? new Date(a.datum + 'T' + a.tijd).getTime() : new Date(a.datum + 'T23:59:59').getTime();
+          const bTime = b.tijd ? new Date(b.datum + 'T' + b.tijd).getTime() : new Date(b.datum + 'T23:59:59').getTime();
+          return aTime - bTime;
+        });
+      const target = upcoming[0] ?? datumsList[datumsList.length - 1];
+      if (!selectedDatumId || !datumsList.some(d => d.id === selectedDatumId)) {
+        setSelectedDatumId(target.id);
+      }
+    }
+
     setLoading(false);
   }
 
-  async function loadEventData(eventId: string) {
-    const [{ data: dates }, { data: responseRows }] = await Promise.all([
-      supabase.from('aanwezigheid_datums').select('*').eq('evenement_id', eventId).order('datum'),
-      supabase.from('aanwezigheid_responses').select('*, spelers(*)').eq('evenement_id', eventId),
-    ]);
-    setDatums((dates ?? []) as AanwezigheidDatum[]);
-    setResponses((responseRows ?? []) as AanwezigheidResponse[]);
-  }
+  useEffect(() => { loadAll(); }, []);
 
-  useEffect(() => { loadEvenementen(); }, []);
+  const filteredDatums = useMemo(() => {
+    let result = allDatums;
+    if (selectedEventIds.size > 0 && selectedEventIds.size < evenementen.length) {
+      result = result.filter(d => selectedEventIds.has(d.evenement_id));
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      result = result.filter(d =>
+        (d.naam ?? '').toLowerCase().includes(q) ||
+        d.evenement_naam.toLowerCase().includes(q) ||
+        format(parseISO(d.datum), 'dd MMMM yyyy', { locale: nl }).toLowerCase().includes(q)
+      );
+    }
+    return [...result].sort((a, b) => a.datum.localeCompare(b.datum));
+  }, [allDatums, selectedEventIds, evenementen.length, search]);
 
-  async function selectEvent(id: string) {
-    setSelectedId(id);
-    await loadEventData(id);
-  }
+  const selectedDatum = filteredDatums.find(d => d.id === selectedDatumId) ?? filteredDatums[0] ?? null;
+  const selectedEvent = selectedDatum?.evenement ?? null;
 
-  async function handleDeleteEvent() {
-    if (!selectedEvent || !window.confirm('Deze aanwezigheid en alle bijbehorende datums verwijderen?')) return;
-    const { error } = await supabase.from('aanwezigheid_evenementen').delete().eq('id', selectedEvent.id);
+  async function handleDeleteDatum(datumId: string) {
+    const { error } = await supabase.from('aanwezigheid_datums').delete().eq('id', datumId);
     if (error) setMessage(error.message);
-    else { setMessage('Aanwezigheid verwijderd.'); await loadEvenementen(); }
+    else { setMessage('Activiteit verwijderd.'); setConfirmDeleteDatum(null); await loadAll(); }
+  }
+
+  async function handleDeleteEvent(eventId: string) {
+    if (!window.confirm('Deze aanwezigheid en alle bijbehorende datums verwijderen?')) return;
+    const { error } = await supabase.from('aanwezigheid_evenementen').delete().eq('id', eventId);
+    if (error) setMessage(error.message);
+    else { setMessage('Aanwezigheid verwijderd.'); await loadAll(); }
+  }
+
+  function toggleEventFilter(id: string) {
+    setSelectedEventIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   if (loading) return <div className="space-y-3">{[1, 2, 3].map(i => <div key={i} className="h-20 bg-gray-100 rounded-2xl animate-pulse" />)}</div>;
-
-  const selectedEvent = evenementen.find(event => event.id === selectedId) ?? null;
 
   return (
     <div className="space-y-5">
@@ -104,10 +172,10 @@ function AanwezigheidContent() {
       {showCreateModal && (
         <CreateEventModal
           onClose={() => setShowCreateModal(false)}
-          onCreated={(id) => {
+          onCreated={() => {
             setShowCreateModal(false);
             setMessage('Aanwezigheid aangemaakt.');
-            loadEvenementen().then(() => selectEvent(id));
+            loadAll();
           }}
         />
       )}
@@ -119,43 +187,347 @@ function AanwezigheidContent() {
         />
       )}
 
-      {evenementen.length === 0 && !showCreateModal ? (
+      {/* Event filter chips */}
+      {evenementen.length > 0 && (
+        <div className="flex gap-2 flex-wrap">
+          {evenementen.map(event => {
+            const active = selectedEventIds.has(event.id);
+            return (
+              <button
+                key={event.id}
+                onClick={() => toggleEventFilter(event.id)}
+                className={`rounded-xl px-3 py-2 text-xs font-semibold transition-colors border-2 ${
+                  active ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-400 hover:border-gray-300'
+                }`}
+              >
+                {event.naam}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Search */}
+      {allDatums.length > 0 && (
+        <div className="relative">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Zoek activiteit..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+          />
+        </div>
+      )}
+
+      {allDatums.length === 0 && !showCreateModal ? (
         <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-5 py-14 text-center text-gray-400">
           <CalendarCheck className="mx-auto mb-3 h-12 w-12 opacity-30" />
           <p className="font-medium">Nog geen aanwezigheid aangemaakt</p>
           {isHoofdbeheerder && <p className="mt-1 text-sm">Maak een aanwezigheid aan om datums te plannen.</p>}
         </div>
+      ) : filteredDatums.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-5 py-10 text-center text-gray-400">
+          <p className="text-sm">Geen activiteiten gevonden met de huidige filters.</p>
+        </div>
       ) : (
         <>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {evenementen.map(event => (
-              <button key={event.id} onClick={() => selectEvent(event.id)} className={`shrink-0 rounded-xl px-4 py-3 text-left transition-colors ${event.id === selectedId ? 'bg-blue-600 text-white' : 'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50'}`}>
-                <div className="flex items-center gap-2">
-                  <p className="text-sm font-semibold">{event.naam}</p>
-                  {event.aanwezigheid_types && (
-                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${event.id === selectedId ? 'bg-blue-500 text-blue-50' : 'bg-blue-50 text-blue-600'}`}>
-                      {event.aanwezigheid_types.naam}
-                    </span>
-                  )}
-                </div>
-                <p className={`mt-0.5 text-xs ${event.id === selectedId ? 'text-blue-100' : 'text-gray-400'}`}>
-                  {datums.length > 0 && datums[0]?.deadline ? `Deadline ${format(parseISO(datums[0].deadline), 'dd MMM HH:mm', { locale: nl })}` : ''}
-                </p>
-              </button>
-            ))}
+          {/* Planned dates list */}
+          <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+            <p className="mb-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Geplande datums ({filteredDatums.length})</p>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {filteredDatums.map(d => {
+                const count = allResponses.filter(r => r.datum_id === d.id).length;
+                const dl = d.deadline;
+                const passed = dl ? new Date(dl).getTime() < Date.now() : false;
+                const isSelected = (selectedDatum?.id ?? null) === d.id;
+                const dDate = new Date(d.datum + 'T00:00:00');
+                const isTodayDate = isToday(dDate);
+                return (
+                  <button
+                    key={d.id}
+                    onClick={() => setSelectedDatumId(d.id)}
+                    className={`shrink-0 rounded-xl px-3 py-2.5 text-left transition-colors min-w-[140px] ${isSelected ? 'bg-blue-600 text-white' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'}`}
+                  >
+                    <p className="text-sm font-semibold">{d.naam || d.evenement_naam}</p>
+                    <p className={`text-xs ${isSelected ? 'text-blue-100' : 'text-gray-400'}`}>
+                      {format(parseISO(d.datum), 'dd MMM yyyy', { locale: nl })}{d.tijd ? ` ${d.tijd}` : ''}
+                    </p>
+                    {dl && (
+                      <p className={`text-[10px] mt-0.5 ${passed ? (isSelected ? 'text-red-300' : 'text-red-500') : (isSelected ? 'text-blue-200' : 'text-gray-400')}`}>
+                        Deadline {format(parseISO(dl), 'dd MMM HH:mm', { locale: nl })}
+                      </p>
+                    )}
+                    {isTodayDate && <span className={`text-[10px] font-bold ${isSelected ? 'text-white' : 'text-blue-600'}`}>Vandaag</span>}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-          {selectedEvent && (
-            <EventContent
+
+          {/* Calendar */}
+          <CalendarView
+            datums={filteredDatums}
+            selectedDatumId={selectedDatum?.id ?? null}
+            onSelectDatum={(id) => setSelectedDatumId(id)}
+          />
+
+          {/* Selected date detail */}
+          {selectedDatum && selectedEvent && (
+            <DatumDetail
+              datum={selectedDatum}
               event={selectedEvent}
-              datums={datums}
-              responses={responses}
+              responses={allResponses.filter(r => r.datum_id === selectedDatum.id)}
               spelers={spelers}
               isHoofdbeheerder={isHoofdbeheerder}
-              onReload={() => loadEventData(selectedEvent.id)}
-              onDelete={handleDeleteEvent}
+              onReload={loadAll}
+              onDeleteDatum={handleDeleteDatum}
+              onDeleteEvent={() => handleDeleteEvent(selectedEvent.id)}
+              confirmDeleteDatum={confirmDeleteDatum}
+              setConfirmDeleteDatum={setConfirmDeleteDatum}
             />
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+function CalendarView({ datums, selectedDatumId, onSelectDatum }: {
+  datums: AllDatumWithEvent[];
+  selectedDatumId: string | null;
+  onSelectDatum: (id: string) => void;
+}) {
+  const [month, setMonth] = useState(new Date());
+  const days = useMemo(() => eachDayOfInterval({ start: startOfMonth(month), end: endOfMonth(month) }), [month]);
+  const leadingEmpty = (startOfMonth(month).getDay() + 6) % 7;
+
+  return (
+    <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-gray-900">Agenda</p>
+          <p className="text-xs text-gray-400">Blauwe dagen hebben activiteiten. Klik om te bekijken.</p>
+        </div>
+        <div className="flex gap-1">
+          <button onClick={() => setMonth(subMonths(month, 1))} className="rounded-lg p-2 hover:bg-gray-100"><ChevronLeft className="h-4 w-4" /></button>
+          <button onClick={() => setMonth(addMonths(month, 1))} className="rounded-lg p-2 hover:bg-gray-100"><ChevronRight className="h-4 w-4" /></button>
+        </div>
+      </div>
+      <div className="mb-2 text-center text-sm font-semibold capitalize text-gray-800">{format(month, 'MMMM yyyy', { locale: nl })}</div>
+      <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-gray-400">
+        {['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo'].map(d => <span key={d} className="py-1">{d}</span>)}
+        {Array.from({ length: leadingEmpty }).map((_, i) => <span key={`e${i}`} />)}
+        {days.map(day => {
+          const planned = datums.find(d => d.datum === format(day, 'yyyy-MM-dd'));
+          const selected = planned?.id === selectedDatumId;
+          const dl = planned?.deadline;
+          const passed = dl ? new Date(dl).getTime() < Date.now() : false;
+          const today = isToday(day);
+          return (
+            <button
+              key={day.toISOString()}
+              onClick={() => planned && onSelectDatum(planned.id)}
+              disabled={!planned}
+              className={`relative rounded-lg py-2 text-xs transition-colors ${
+                selected ? 'bg-blue-600 text-white'
+                : planned ? 'bg-blue-50 font-bold text-blue-700 hover:bg-blue-100 cursor-pointer'
+                : today ? 'text-gray-400 ring-1 ring-gray-200'
+                : 'text-gray-300 cursor-default'
+              }`}
+            >
+              {format(day, 'd')}
+              {planned && <span className={`absolute bottom-0.5 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full ${selected ? 'bg-white' : passed ? 'bg-red-500' : 'bg-blue-500'}`} />}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DatumDetail({
+  datum, event, responses, spelers, isHoofdbeheerder, onReload, onDeleteDatum, onDeleteEvent, confirmDeleteDatum, setConfirmDeleteDatum,
+}: {
+  datum: AllDatumWithEvent;
+  event: AanwezigheidEvenement;
+  responses: AanwezigheidResponse[];
+  spelers: Speler[];
+  isHoofdbeheerder: boolean;
+  onReload: () => Promise<void>;
+  onDeleteDatum: (id: string) => Promise<void>;
+  onDeleteEvent: () => void;
+  confirmDeleteDatum: string | null;
+  setConfirmDeleteDatum: (id: string | null) => void;
+}) {
+  const { profile } = useAuth();
+  const [status, setStatus] = useState<'aanwezig' | 'afwezig'>('aanwezig');
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [editingDeadline, setEditingDeadline] = useState(false);
+  const [editingTime, setEditingTime] = useState(false);
+  const [deadlineInput, setDeadlineInput] = useState('');
+  const [timeInput, setTimeInput] = useState('');
+
+  const mySpeler = spelers.find(s => s.profile_id === profile?.id);
+  const myResponse = responses.find(r => r.speler_id === mySpeler?.id);
+  const deadlinePassed = datum.deadline ? new Date(datum.deadline).getTime() < Date.now() : false;
+
+  useEffect(() => {
+    if (myResponse) {
+      setStatus(myResponse.status);
+      setReason(myResponse.reden ?? '');
+    } else {
+      setStatus('aanwezig');
+      setReason('');
+    }
+  }, [myResponse, datum.id]);
+
+  async function submitResponse() {
+    if (!mySpeler) return;
+    if (status === 'afwezig' && !reason.trim()) { setError('Vul een reden in als je afwezig bent.'); return; }
+    setSaving(true);
+    const { error: upsertError } = await supabase.from('aanwezigheid_responses').upsert({
+      evenement_id: event.id,
+      datum_id: datum.id,
+      speler_id: mySpeler.id,
+      status,
+      reden: status === 'afwezig' ? reason.trim() : null,
+      is_late: deadlinePassed,
+    }, { onConflict: 'datum_id,speler_id' });
+    setSaving(false);
+    if (upsertError) setError(upsertError.message);
+    else { setError(''); await onReload(); }
+  }
+
+  async function saveDeadline() {
+    const parsed = new Date(deadlineInput);
+    if (Number.isNaN(parsed.getTime())) { setError('Ongeldige deadline.'); return; }
+    setSaving(true);
+    const { error: updError } = await supabase.from('aanwezigheid_datums').update({ deadline: parsed.toISOString() }).eq('id', datum.id);
+    setSaving(false);
+    if (updError) setError(updError.message);
+    else { setEditingDeadline(false); setError(''); await onReload(); }
+  }
+
+  async function saveTime() {
+    setSaving(true);
+    const { error: updError } = await supabase.from('aanwezigheid_datums').update({ tijd: timeInput || null }).eq('id', datum.id);
+    setSaving(false);
+    if (updError) setError(updError.message);
+    else { setEditingTime(false); setError(''); await onReload(); }
+  }
+
+  const deadlineLocal = (dl: string | null) => {
+    if (!dl) return '';
+    try { return new Date(dl).toISOString().slice(0, 16); } catch { return ''; }
+  };
+
+  return (
+    <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
+      <div className="mb-4 flex items-start justify-between">
+        <div>
+          <p className="text-base font-semibold text-gray-900">{datum.naam || event.naam}</p>
+          <p className="text-xs text-gray-400 capitalize">{format(parseISO(datum.datum), 'EEEE d MMMM yyyy', { locale: nl })}{datum.tijd ? ` om ${datum.tijd}` : ''}</p>
+          {datum.deadline && (
+            <p className={`text-xs mt-0.5 flex items-center gap-1 ${deadlinePassed ? 'text-red-600' : 'text-gray-500'}`}>
+              <Clock className="h-3 w-3" />
+              Deadline {format(parseISO(datum.deadline), 'd MMMM HH:mm', { locale: nl })}
+              {deadlinePassed && ' (verstreken)'}
+            </p>
+          )}
+        </div>
+        {isHoofdbeheerder && (
+          <div className="flex flex-col items-end gap-1.5">
+            <div className="flex gap-2">
+              {!editingDeadline && datum.deadline && (
+                <button onClick={() => { setDeadlineInput(deadlineLocal(datum.deadline)); setEditingDeadline(true); }} className="text-xs text-blue-600 font-medium hover:text-blue-800">
+                  Deadline wijzigen
+                </button>
+              )}
+              {!editingTime && (
+                <button onClick={() => { setTimeInput(datum.tijd ?? ''); setEditingTime(true); }} className="text-xs text-blue-600 font-medium hover:text-blue-800">
+                  Tijd wijzigen
+                </button>
+              )}
+              <button onClick={() => setConfirmDeleteDatum(datum.id)} className="flex items-center gap-1 text-xs text-red-600">
+                <Trash2 className="h-3.5 w-3.5" />Verwijder
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Delete confirmation */}
+      {confirmDeleteDatum === datum.id && (
+        <div className="mb-4 rounded-xl bg-red-50 border border-red-200 p-4">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
+              <AlertTriangle className="h-4 w-4 text-red-600" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-gray-900">Activiteit verwijderen?</p>
+              <p className="text-xs text-gray-500">Deze datum wordt verwijderd. Dit kan niet ongedaan gemaakt worden.</p>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={() => setConfirmDeleteDatum(null)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors">Nee</button>
+            <button onClick={() => onDeleteDatum(datum.id)} className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-xs font-semibold hover:bg-red-700 transition-colors">Ja, verwijderen</button>
+          </div>
+        </div>
+      )}
+
+      {/* Deadline editing */}
+      {editingDeadline && (
+        <div className="mb-4 flex gap-2 rounded-xl bg-blue-50 p-3">
+          <input
+            type="datetime-local"
+            value={deadlineInput}
+            onChange={e => setDeadlineInput(e.target.value)}
+            className="flex-1 px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <button onClick={saveDeadline} disabled={saving} className="bg-green-600 text-white rounded-xl px-3 py-2 text-xs font-semibold hover:bg-green-700 disabled:opacity-60">Opslaan</button>
+          <button onClick={() => setEditingDeadline(false)} className="bg-gray-100 text-gray-600 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-gray-200">Annuleer</button>
+        </div>
+      )}
+
+      {/* Time editing */}
+      {editingTime && (
+        <div className="mb-4 flex gap-2 rounded-xl bg-blue-50 p-3">
+          <input
+            type="time"
+            value={timeInput}
+            onChange={e => setTimeInput(e.target.value)}
+            className="flex-1 px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <button onClick={saveTime} disabled={saving} className="bg-green-600 text-white rounded-xl px-3 py-2 text-xs font-semibold hover:bg-green-700 disabled:opacity-60">Opslaan</button>
+          <button onClick={() => setEditingTime(false)} className="bg-gray-100 text-gray-600 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-gray-200">Annuleer</button>
+        </div>
+      )}
+
+      {error && <p className="mb-3 text-xs text-red-600">{error}</p>}
+
+      <AllResponses responses={responses} spelers={spelers} />
+
+      {mySpeler ? (
+        <div className="mt-4 border-t border-gray-100 pt-4">
+          <ResponseForm
+            response={myResponse}
+            status={status}
+            setStatus={setStatus}
+            reason={reason}
+            setReason={setReason}
+            deadlinePassed={deadlinePassed}
+            saving={saving}
+            onSubmit={submitResponse}
+          />
+        </div>
+      ) : (
+        <div className="mt-4 border-t border-gray-100 pt-4">
+          <p className="text-sm text-gray-500">Je account is nog niet gekoppeld aan een speler.</p>
+        </div>
       )}
     </div>
   );
@@ -169,12 +541,13 @@ function computeDeadlineForDate(type: AanwezigheidType, dateStr: string): string
 
 function CreateEventModal({ onClose, onCreated }: {
   onClose: () => void;
-  onCreated: (id: string) => void;
+  onCreated: () => void;
 }) {
   const { profile } = useAuth();
   const [types, setTypes] = useState<AanwezigheidType[]>([]);
   const [naam, setNaam] = useState('');
   const [typeId, setTypeId] = useState('');
+  const [tijd, setTijd] = useState('');
   const [month, setMonth] = useState(new Date());
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
   const [dateDeadlines, setDateDeadlines] = useState<Record<string, string>>({});
@@ -260,6 +633,7 @@ function CreateEventModal({ onClose, onCreated }: {
       datum: d,
       naam: naam.trim(),
       deadline: new Date(dateDeadlines[d]).toISOString(),
+      tijd: tijd || null,
     }));
 
     const { error: datumError } = await supabase.from('aanwezigheid_datums').insert(datumRows);
@@ -270,7 +644,7 @@ function CreateEventModal({ onClose, onCreated }: {
     }
 
     setSaving(false);
-    onCreated(eventData.id);
+    onCreated();
   }
 
   return (
@@ -280,7 +654,7 @@ function CreateEventModal({ onClose, onCreated }: {
         <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between rounded-t-3xl sm:rounded-t-2xl z-10">
           <div>
             <h2 className="text-base font-bold text-gray-900">Nieuwe aanwezigheid</h2>
-            <p className="text-xs text-gray-400">Naam, type en datums instellen</p>
+            <p className="text-xs text-gray-400">Naam, type, tijd en datums instellen</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
             <X className="h-5 w-5 text-gray-500" />
@@ -334,6 +708,17 @@ function CreateEventModal({ onClose, onCreated }: {
           </div>
 
           <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Tijd van activiteit (optioneel)</label>
+            <input
+              type="time"
+              value={tijd}
+              onChange={e => setTijd(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="mt-1 text-xs text-gray-400">Indien leeg geldt de activiteit de hele dag. Handmatig aanpasbaar per datum na aanmaken.</p>
+          </div>
+
+          <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
               Datums ({selectedDates.length} geselecteerd)
             </label>
@@ -376,7 +761,7 @@ function CreateEventModal({ onClose, onCreated }: {
                 {selectedDates.map(d => (
                   <div key={d} className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5">
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-xs font-semibold text-gray-700 capitalize">{format(parseISO(d), 'EEEE d MMMM', { locale: nl })}</span>
+                      <span className="text-xs font-semibold text-gray-700 capitalize">{format(parseISO(d), 'EEEE d MMMM', { locale: nl })}{tijd ? ` ${tijd}` : ''}</span>
                       <button type="button" onClick={() => toggleDate(d)} className="text-xs text-gray-400 hover:text-red-600">
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -434,7 +819,6 @@ function TypeManagementModal({ onClose, onSaved }: {
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { profile } = useAuth();
   const [types, setTypes] = useState<AanwezigheidType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -583,233 +967,6 @@ function TypeManagementModal({ onClose, onSaved }: {
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function EventContent({
-  event, datums, responses, spelers, isHoofdbeheerder, onReload, onDelete,
-}: {
-  event: AanwezigheidEvenement;
-  datums: AanwezigheidDatum[];
-  responses: AanwezigheidResponse[];
-  spelers: Speler[];
-  isHoofdbeheerder: boolean;
-  onReload: () => Promise<void>;
-  onDelete: () => Promise<void>;
-}) {
-  const { profile } = useAuth();
-  const [month, setMonth] = useState(new Date());
-  const [selectedDateId, setSelectedDateId] = useState<string | null>(datums[0]?.id ?? null);
-  const [status, setStatus] = useState<'aanwezig' | 'afwezig'>('aanwezig');
-  const [reason, setReason] = useState('');
-  const [savingResponse, setSavingResponse] = useState(false);
-  const [dateError, setDateError] = useState('');
-  const [editingDeadlineFor, setEditingDeadlineFor] = useState<string | null>(null);
-  const [deadlineInput, setDeadlineInput] = useState('');
-
-  useEffect(() => {
-    if (!selectedDateId && datums[0]) setSelectedDateId(datums[0].id);
-  }, [datums, selectedDateId]);
-
-  const selectedDate = datums.find(d => d.id === selectedDateId) ?? null;
-  const mySpeler = spelers.find(s => s.profile_id === profile?.id);
-  const myResponse = responses.find(r => r.datum_id === selectedDateId && r.speler_id === mySpeler?.id);
-  const days = useMemo(() => eachDayOfInterval({ start: startOfMonth(month), end: endOfMonth(month) }), [month]);
-  const leadingEmpty = (startOfMonth(month).getDay() + 6) % 7;
-  const deadlinePassed = selectedDate?.deadline ? new Date(selectedDate.deadline).getTime() < Date.now() : false;
-
-  useEffect(() => {
-    if (myResponse) {
-      setStatus(myResponse.status);
-      setReason(myResponse.reden ?? '');
-    }
-  }, [myResponse]);
-
-  function chooseDate(date: Date) {
-    const existing = datums.find(d => d.datum === format(date, 'yyyy-MM-dd'));
-    setSelectedDateId(existing?.id ?? null);
-    setDateError('');
-  }
-
-  async function submitResponse() {
-    if (!mySpeler || !selectedDate) return;
-    if (status === 'afwezig' && !reason.trim()) { setDateError('Vul een reden in als je afwezig bent.'); return; }
-    setSavingResponse(true);
-    const { error } = await supabase.from('aanwezigheid_responses').upsert({
-      evenement_id: event.id,
-      datum_id: selectedDate.id,
-      speler_id: mySpeler.id,
-      status,
-      reden: status === 'afwezig' ? reason.trim() : null,
-      is_late: deadlinePassed,
-    }, { onConflict: 'datum_id,speler_id' });
-    setSavingResponse(false);
-    if (error) setDateError(error.message);
-    else { setDateError(''); await onReload(); }
-  }
-
-  async function saveDatumDeadline(datumId: string) {
-    const parsed = new Date(deadlineInput);
-    if (Number.isNaN(parsed.getTime())) { setDateError('Ongeldige deadline.'); return; }
-    setSavingResponse(true);
-    const { error } = await supabase.from('aanwezigheid_datums').update({ deadline: parsed.toISOString() }).eq('id', datumId);
-    setSavingResponse(false);
-    if (error) setDateError(error.message);
-    else { setEditingDeadlineFor(null); setDateError(''); await onReload(); }
-  }
-
-  const deadlineLocal = (dl: string | null) => {
-    if (!dl) return '';
-    try { return new Date(dl).toISOString().slice(0, 16); } catch { return ''; }
-  };
-
-  return (
-    <div className="space-y-4">
-      {/* Calendar */}
-      <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold text-gray-900">Kies een datum</p>
-            <p className="text-xs text-gray-400">Blauwe dagen zijn ingepland. Klik om reacties te zien.</p>
-          </div>
-          <div className="flex gap-1">
-            <button onClick={() => setMonth(subMonths(month, 1))} className="rounded-lg p-2 hover:bg-gray-100"><ChevronLeft className="h-4 w-4" /></button>
-            <button onClick={() => setMonth(addMonths(month, 1))} className="rounded-lg p-2 hover:bg-gray-100"><ChevronRight className="h-4 w-4" /></button>
-          </div>
-        </div>
-        <div className="mb-2 text-center text-sm font-semibold capitalize text-gray-800">{format(month, 'MMMM yyyy', { locale: nl })}</div>
-        <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-gray-400">
-          {['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo'].map(d => <span key={d} className="py-1">{d}</span>)}
-          {Array.from({ length: leadingEmpty }).map((_, i) => <span key={`e${i}`} />)}
-          {days.map(day => {
-            const planned = datums.find(d => d.datum === format(day, 'yyyy-MM-dd'));
-            const selected = planned?.id === selectedDateId;
-            const dl = planned?.deadline;
-            const passed = dl ? new Date(dl).getTime() < Date.now() : false;
-            return (
-              <button
-                key={day.toISOString()}
-                onClick={() => planned && chooseDate(day)}
-                disabled={!planned}
-                className={`relative rounded-lg py-2 text-xs transition-colors ${
-                  selected ? 'bg-blue-600 text-white'
-                  : planned ? 'bg-blue-50 font-bold text-blue-700 hover:bg-blue-100 cursor-pointer'
-                  : 'text-gray-300 cursor-default'
-                }`}
-              >
-                {format(day, 'd')}
-                {planned && <span className={`absolute bottom-0.5 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full ${selected ? 'bg-white' : passed ? 'bg-red-500' : 'bg-blue-500'}`} />}
-              </button>
-            );
-          })}
-        </div>
-        {dateError && <p className="mt-2 text-xs text-red-600">{dateError}</p>}
-      </div>
-
-      {/* Planned dates list */}
-      {datums.length > 0 && (
-        <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-          <p className="mb-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Geplande datums ({datums.length})</p>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {datums.map(d => {
-              const count = responses.filter(r => r.datum_id === d.id).length;
-              const dl = d.deadline;
-              const passed = dl ? new Date(dl).getTime() < Date.now() : false;
-              return (
-                <button
-                  key={d.id}
-                  onClick={() => setSelectedDateId(d.id)}
-                  className={`shrink-0 rounded-xl px-3 py-2.5 text-left transition-colors ${d.id === selectedDateId ? 'bg-blue-600 text-white' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'}`}
-                >
-                  <p className="text-sm font-semibold">{d.naam || event.naam}</p>
-                  <p className={`text-xs ${d.id === selectedDateId ? 'text-blue-100' : 'text-gray-400'}`}>
-                    {format(parseISO(d.datum), 'dd MMM yyyy', { locale: nl })}
-                  </p>
-                  {dl && (
-                    <p className={`text-[10px] mt-0.5 ${passed ? 'text-red-500' : d.id === selectedDateId ? 'text-blue-200' : 'text-gray-400'}`}>
-                      Deadline {format(parseISO(dl), 'dd MMM HH:mm', { locale: nl })}
-                    </p>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Selected date detail - everyone sees responses */}
-      {selectedDate ? (
-        <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div className="mb-4 flex items-start justify-between">
-            <div>
-              <p className="text-base font-semibold text-gray-900">{selectedDate.naam || event.naam}</p>
-              <p className="text-xs text-gray-400 capitalize">{format(parseISO(selectedDate.datum), 'EEEE d MMMM yyyy', { locale: nl })}</p>
-              {selectedDate.deadline && (
-                <p className={`text-xs mt-0.5 flex items-center gap-1 ${deadlinePassed ? 'text-red-600' : 'text-gray-500'}`}>
-                  <Clock className="h-3 w-3" />
-                  Deadline {format(parseISO(selectedDate.deadline), 'd MMMM HH:mm', { locale: nl })}
-                  {deadlinePassed && ' (verstreken)'}
-                </p>
-              )}
-            </div>
-            {isHoofdbeheerder && (
-              <div className="flex gap-2">
-                {selectedDate.deadline && !editingDeadlineFor && (
-                  <button
-                    onClick={() => { setDeadlineInput(deadlineLocal(selectedDate.deadline)); setEditingDeadlineFor(selectedDate.id); }}
-                    className="text-xs text-blue-600 font-medium hover:text-blue-800"
-                  >
-                    Deadline wijzigen
-                  </button>
-                )}
-                <button onClick={onDelete} className="flex items-center gap-1 text-xs text-red-600">
-                  <Trash2 className="h-3.5 w-3.5" />Verwijder
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Deadline editing for this specific date */}
-          {editingDeadlineFor === selectedDate.id && (
-            <div className="mb-4 flex gap-2 rounded-xl bg-blue-50 p-3">
-              <input
-                type="datetime-local"
-                value={deadlineInput}
-                onChange={e => setDeadlineInput(e.target.value)}
-                className="flex-1 px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-              <button onClick={() => saveDatumDeadline(selectedDate.id)} disabled={savingResponse} className="bg-green-600 text-white rounded-xl px-3 py-2 text-xs font-semibold hover:bg-green-700 disabled:opacity-60">Opslaan</button>
-              <button onClick={() => setEditingDeadlineFor(null)} className="bg-gray-100 text-gray-600 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-gray-200">Annuleer</button>
-            </div>
-          )}
-
-          <AllResponses responses={responses.filter(r => r.datum_id === selectedDate.id)} spelers={spelers} />
-
-          {mySpeler ? (
-            <div className="mt-4 border-t border-gray-100 pt-4">
-              <ResponseForm
-                response={myResponse}
-                status={status}
-                setStatus={setStatus}
-                reason={reason}
-                setReason={setReason}
-                deadlinePassed={deadlinePassed}
-                saving={savingResponse}
-                onSubmit={submitResponse}
-              />
-            </div>
-          ) : (
-            <div className="mt-4 border-t border-gray-100 pt-4">
-              <p className="text-sm text-gray-500">Je account is nog niet gekoppeld aan een speler.</p>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="rounded-2xl border border-dashed border-gray-200 p-6 text-center text-sm text-gray-400">
-          Klik op een blauwe datum om reacties te zien.
-        </div>
-      )}
     </div>
   );
 }

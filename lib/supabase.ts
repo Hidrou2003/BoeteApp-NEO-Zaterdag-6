@@ -106,6 +106,7 @@ export interface AanwezigheidDatum {
   datum: string;
   naam: string | null;
   deadline: string | null;
+  tijd: string | null;
   created_at: string;
 }
 
