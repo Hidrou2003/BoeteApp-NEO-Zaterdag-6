@@ -6,6 +6,7 @@ import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { supabase, AanwezigheidDatum, AanwezigheidEvenement, AanwezigheidResponse, AanwezigheidType, Speler } from '@/lib/supabase';
 import { CalendarCheck, ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2, Users, X, Clock, AlertTriangle, Check, Settings, Search } from 'lucide-react';
+import { useRef } from 'react';
 import { addMonths, eachDayOfInterval, endOfMonth, format, parseISO, startOfMonth, subMonths, subDays, isToday } from 'date-fns';
 import { nl } from 'date-fns/locale';
 
@@ -40,6 +41,7 @@ function AanwezigheidContent() {
   const [search, setSearch] = useState('');
   const [selectedDatumId, setSelectedDatumId] = useState<string | null>(null);
   const [confirmDeleteDatum, setConfirmDeleteDatum] = useState<string | null>(null);
+  const dateScrollRef = useRef<HTMLDivElement>(null);
 
   async function loadAll() {
     setLoading(true);
@@ -133,6 +135,15 @@ function AanwezigheidContent() {
   function normalizeSearchText(value: string): string {
     return value.toLocaleLowerCase('nl-NL').replace(/\s+/g, '');
   }
+
+  useEffect(() => {
+    if (!dateScrollRef.current || !selectedDatumId || filteredDatums.length === 0) return;
+    const el = dateScrollRef.current;
+    const idx = filteredDatums.findIndex(d => d.id === selectedDatumId);
+    if (idx < 0) return;
+    const target = el.children[idx] as HTMLElement | undefined;
+    if (target) el.scrollTo({ left: target.offsetLeft - 8, behavior: 'smooth' });
+  }, [selectedDatumId, filteredDatums]);
 
   async function handleDeleteDatum(datumId: string) {
     const { error } = await supabase.from('aanwezigheid_datums').delete().eq('id', datumId);
@@ -242,7 +253,7 @@ function AanwezigheidContent() {
             {filteredDatums.length === 0 ? (
               <p className="py-4 text-center text-sm text-gray-400">Geen activiteiten gevonden met de huidige filters.</p>
             ) : (
-              <div className="flex gap-2 overflow-x-auto pb-1">
+              <div ref={dateScrollRef} className="flex gap-2 overflow-x-auto pb-1 scroll-smooth">
                 {filteredDatums.map(d => {
                 const count = allResponses.filter(r => r.datum_id === d.id).length;
                 const dl = d.deadline;
@@ -377,7 +388,7 @@ function DatumDetail({
   setConfirmDeleteDatum: (id: string | null) => void;
 }) {
   const { profile } = useAuth();
-  const [status, setStatus] = useState<'aanwezig' | 'afwezig'>('aanwezig');
+  const [status, setStatus] = useState<'aanwezig' | 'passief_aanwezig' | 'afwezig'>('aanwezig');
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -410,7 +421,7 @@ function DatumDetail({
       speler_id: mySpeler.id,
       status,
       reden: status === 'afwezig' ? reason.trim() : null,
-      is_late: deadlinePassed,
+      is_late: deadlinePassed && status === 'afwezig',
     }, { onConflict: 'datum_id,speler_id' });
     setSaving(false);
     if (upsertError) setError(upsertError.message);
@@ -981,8 +992,9 @@ function TypeManagementModal({ onClose, onSaved }: {
 function AllResponses({ responses, spelers }: { responses: AanwezigheidResponse[]; spelers: Speler[] }) {
   const responseMap = new Map(responses.map(r => [r.speler_id, r]));
   const aanwezig = responses.filter(r => r.status === 'aanwezig').length;
+  const passief = responses.filter(r => r.status === 'passief_aanwezig').length;
   const afwezig = responses.filter(r => r.status === 'afwezig').length;
-  const geen = spelers.length - aanwezig - afwezig;
+  const geen = spelers.length - aanwezig - passief - afwezig;
 
   return (
     <div>
@@ -993,6 +1005,7 @@ function AllResponses({ responses, spelers }: { responses: AanwezigheidResponse[
         </div>
         <div className="flex gap-3 text-xs">
           <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-green-500" />{aanwezig} aanwezig</span>
+          <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-500" />{passief} passief</span>
           <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-500" />{afwezig} afwezig</span>
           <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-gray-300" />{geen} geen reactie</span>
         </div>
@@ -1002,7 +1015,7 @@ function AllResponses({ responses, spelers }: { responses: AanwezigheidResponse[
           const r = responseMap.get(speler.id);
           return (
             <div key={speler.id} className="flex items-center gap-3 rounded-xl bg-gray-50 px-3 py-2.5">
-              <div className={`h-2.5 w-2.5 rounded-full ${r?.status === 'aanwezig' ? 'bg-green-500' : r?.status === 'afwezig' ? 'bg-red-500' : 'bg-gray-300'}`} />
+              <div className={`h-2.5 w-2.5 rounded-full ${r?.status === 'aanwezig' ? 'bg-green-500' : r?.status === 'passief_aanwezig' ? 'bg-blue-500' : r?.status === 'afwezig' ? 'bg-red-500' : 'bg-gray-300'}`} />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-medium text-gray-800">{speler.naam}</p>
@@ -1014,8 +1027,8 @@ function AllResponses({ responses, spelers }: { responses: AanwezigheidResponse[
                 </div>
                 {r?.status === 'afwezig' && r.reden && <p className="truncate text-xs text-gray-500 mt-0.5">{r.reden}</p>}
               </div>
-              <span className={`text-xs font-semibold ${r?.status === 'aanwezig' ? 'text-green-700' : r?.status === 'afwezig' ? 'text-red-700' : 'text-gray-400'}`}>
-                {r?.status === 'aanwezig' ? 'Aanwezig' : r?.status === 'afwezig' ? 'Afwezig' : 'Geen reactie'}
+              <span className={`text-xs font-semibold ${r?.status === 'aanwezig' ? 'text-green-700' : r?.status === 'passief_aanwezig' ? 'text-blue-700' : r?.status === 'afwezig' ? 'text-red-700' : 'text-gray-400'}`}>
+                {r?.status === 'aanwezig' ? 'Aanwezig' : r?.status === 'passief_aanwezig' ? 'Passief' : r?.status === 'afwezig' ? 'Afwezig' : 'Geen reactie'}
               </span>
             </div>
           );
@@ -1029,8 +1042,8 @@ function ResponseForm({
   response, status, setStatus, reason, setReason, deadlinePassed, saving, onSubmit,
 }: {
   response: AanwezigheidResponse | undefined;
-  status: 'aanwezig' | 'afwezig';
-  setStatus: (value: 'aanwezig' | 'afwezig') => void;
+  status: 'aanwezig' | 'passief_aanwezig' | 'afwezig';
+  setStatus: (value: 'aanwezig' | 'passief_aanwezig' | 'afwezig') => void;
   reason: string;
   setReason: (value: string) => void;
   deadlinePassed: boolean;
@@ -1043,14 +1056,18 @@ function ResponseForm({
       {deadlinePassed && (
         <div className="flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
           <AlertTriangle className="h-4 w-4 flex-shrink-0" />
-          <span>De deadline is verstreken. Je kunt nog steeds reageren, maar dit wordt gemarkeerd als te laat en getoond bij het invullen van de boetes.</span>
+          <span>De deadline is verstreken. Je kunt nog steeds reageren. Afmelden na de deadline wordt gemarkeerd als te laat.</span>
         </div>
       )}
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         <button
           onClick={() => setStatus('aanwezig')}
           className={`rounded-xl border-2 px-3 py-3 text-sm font-semibold transition-colors ${status === 'aanwezig' ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-200 text-gray-600'}`}
         >Aanwezig</button>
+        <button
+          onClick={() => setStatus('passief_aanwezig')}
+          className={`rounded-xl border-2 px-3 py-3 text-sm font-semibold transition-colors ${status === 'passief_aanwezig' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'}`}
+        >Passief</button>
         <button
           onClick={() => setStatus('afwezig')}
           className={`rounded-xl border-2 px-3 py-3 text-sm font-semibold transition-colors ${status === 'afwezig' ? 'border-red-500 bg-red-50 text-red-700' : 'border-gray-200 text-gray-600'}`}

@@ -7,7 +7,8 @@ import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { supabase, AanwezigheidEvenement, AanwezigheidDatum, AanwezigheidResponse } from '@/lib/supabase';
 import { ArrowLeft, Zap, Calendar } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
+import { nl } from 'date-fns/locale';
 import Link from 'next/link';
 
 export default function NieuweActiviteitPage() {
@@ -28,7 +29,7 @@ function NieuweActiviteitContent() {
   const [isDubbel, setIsDubbel] = useState(false);
   const [isDubbeleMaand, setIsDubbeleMaand] = useState(false);
   const [aanwezigheidEvenementId, setAanwezigheidEvenementId] = useState('');
-  const [aanwezigheidEvenementen, setAanwezigheidEvenementen] = useState<AanwezigheidEvenement[]>([]);
+  const [aanwezigheidEvenementen, setAanwezigheidEvenementen] = useState<(AanwezigheidEvenement & { earliest_datum?: string })[]>([]);
   const [linkedDatums, setLinkedDatums] = useState<AanwezigheidDatum[]>([]);
   const [responses, setResponses] = useState<AanwezigheidResponse[]>([]);
   const [loading, setLoading] = useState(false);
@@ -38,9 +39,20 @@ function NieuweActiviteitContent() {
 
   useEffect(() => {
     if (!isBeheerder) return;
-    supabase.from('aanwezigheid_evenementen').select('*, aanwezigheid_types(*)').order('deadline', { ascending: false }).then(({ data }) => {
-      setAanwezigheidEvenementen((data ?? []) as AanwezigheidEvenement[]);
-    });
+    (async () => {
+      const { data: events } = await supabase.from('aanwezigheid_evenementen').select('*, aanwezigheid_types(*)').order('deadline', { ascending: false });
+      const allEvents = (events ?? []) as AanwezigheidEvenement[];
+      if (allEvents.length === 0) { setAanwezigheidEvenementen([]); return; }
+      const { data: datums } = await supabase.from('aanwezigheid_datums').select('evenement_id, datum').in('evenement_id', allEvents.map(e => e.id)).order('datum');
+      const datumsByEvent = new Map<string, string[]>();
+      for (const d of (datums ?? [])) { const arr = datumsByEvent.get(d.evenement_id) ?? []; arr.push(d.datum); datumsByEvent.set(d.evenement_id, arr); }
+      const now = Date.now();
+      const enriched = allEvents
+        .map(e => { const dates = datumsByEvent.get(e.id) ?? []; const nearest = dates.map(d => ({ d, diff: Math.abs(new Date(d + 'T00:00:00').getTime() - now) })).sort((a, b) => a.diff - b.diff)[0]; return { ...e, earliest_datum: nearest?.d ?? undefined }; })
+        .filter(e => (datumsByEvent.get(e.id)?.length ?? 0) > 0)
+        .sort((a, b) => { const aDiff = a.earliest_datum ? Math.abs(new Date(a.earliest_datum + 'T00:00:00').getTime() - now) : Infinity; const bDiff = b.earliest_datum ? Math.abs(new Date(b.earliest_datum + 'T00:00:00').getTime() - now) : Infinity; return aDiff - bDiff; });
+      setAanwezigheidEvenementen(enriched);
+    })();
   }, [isBeheerder]);
 
   useEffect(() => {
@@ -121,7 +133,7 @@ function NieuweActiviteitContent() {
           let aanwezigheid: 'aanwezig' | 'geoorloofd_afwezig' | null = null;
           if (resp?.status === 'aanwezig') {
             aanwezigheid = 'aanwezig';
-          } else if (resp?.status === 'afwezig') {
+          } else if (resp?.status === 'afwezig' || resp?.status === 'passief_aanwezig') {
             aanwezigheid = 'geoorloofd_afwezig';
           }
           return {
@@ -147,8 +159,9 @@ function NieuweActiviteitContent() {
 
   const linkedDatumMatch = linkedDatums.find(d => d.datum === datum);
   const linkedResponses = linkedDatumMatch ? responses.filter(r => r.datum_id === linkedDatumMatch.id) : [];
+  const passiefCount = linkedResponses.filter(r => r.status === 'passief_aanwezig').length;
   const aanwezigCount = linkedResponses.filter(r => r.status === 'aanwezig').length;
-  const afwezigCount = linkedResponses.filter(r => r.status === 'afwezig').length;
+  const afwezigCount = linkedResponses.filter(r => r.status === 'afwezig').length + passiefCount;
 
   return (
     <div className="space-y-6">
@@ -202,8 +215,7 @@ function NieuweActiviteitContent() {
                 <option key={event.id} value={event.id}>
                   {event.naam}
                   {event.aanwezigheid_types ? ` (${event.aanwezigheid_types.naam})` : ''}
-                  {' — deadline '}
-                  {new Date(event.deadline).toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' })}
+                  {event.earliest_datum ? ` — ${format(parseISO(event.earliest_datum), 'dd-MM-yyyy', { locale: nl })}` : ''}
                 </option>
               ))}
             </select>
@@ -215,7 +227,7 @@ function NieuweActiviteitContent() {
             <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3">
               <p className="text-sm font-semibold text-blue-800">Automatische invulling</p>
               <p className="text-xs text-blue-600 mt-0.5">
-                {aanwezigCount} spelers worden op 'aanwezig' gezet, {afwezigCount} op 'geoorloofd afwezig' (met reden).
+                {aanwezigCount} spelers worden op 'aanwezig' gezet, {afwezigCount} op 'geoorloofd afwezig'{passiefCount > 0 ? ` (inclusief ${passiefCount} passief aanwezig)` : ''}.
                 De beheerder kan dit tijdens het invullen nog wijzigen naar ongeoorloord.
               </p>
             </div>

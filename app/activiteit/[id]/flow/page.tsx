@@ -105,7 +105,7 @@ function FlowContent() {
         .eq('evenement_id', act.aanwezigheid_evenement_id);
       for (const r of (aanwezigResponses ?? []) as AanwezigheidResponse[]) {
         const spelerId = r.spelers?.id ?? r.speler_id;
-        lateResponseMap.set(spelerId, { isLate: r.is_late, reden: r.reden });
+        lateResponseMap.set(spelerId, { isLate: r.is_late && r.status === 'afwezig', reden: r.reden });
       }
     }
 
@@ -556,7 +556,7 @@ function FlowContent() {
                 <h2 className="text-xl font-bold text-white">{current.speler.naam}</h2>
                 {current.isLateResponse && (
                   <span className="flex items-center gap-1 text-[10px] font-semibold bg-amber-400/90 text-amber-950 px-1.5 py-0.5 rounded-full">
-                    <AlertTriangle className="h-2.5 w-2.5" />Te laat aangemeld
+                    <AlertTriangle className="h-2.5 w-2.5" />Te laat afgemeld
                   </span>
                 )}
               </div>

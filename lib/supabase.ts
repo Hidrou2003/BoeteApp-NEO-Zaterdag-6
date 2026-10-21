@@ -115,7 +115,7 @@ export interface AanwezigheidResponse {
   evenement_id: string;
   datum_id: string;
   speler_id: string;
-  status: 'aanwezig' | 'afwezig';
+  status: 'aanwezig' | 'passief_aanwezig' | 'afwezig';
   reden: string | null;
   is_late: boolean;
   created_at: string;
