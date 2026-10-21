@@ -105,6 +105,7 @@ export interface AanwezigheidDatum {
   evenement_id: string;
   datum: string;
   naam: string | null;
+  deadline: string | null;
   created_at: string;
 }
 

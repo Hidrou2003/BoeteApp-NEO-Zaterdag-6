@@ -5,7 +5,7 @@ import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { supabase, AanwezigheidDatum, AanwezigheidEvenement, AanwezigheidResponse, AanwezigheidType, Speler } from '@/lib/supabase';
-import { CalendarCheck, ChevronLeft, ChevronRight, Plus, Save, Trash2, Users, X, Clock, AlertTriangle, Check } from 'lucide-react';
+import { CalendarCheck, ChevronLeft, ChevronRight, Plus, Save, Trash2, Users, X, Clock, AlertTriangle, Check, Settings } from 'lucide-react';
 import { addMonths, eachDayOfInterval, endOfMonth, format, parseISO, startOfMonth, subMonths, subDays } from 'date-fns';
 import { nl } from 'date-fns/locale';
 
@@ -30,6 +30,7 @@ function AanwezigheidContent() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showTypeModal, setShowTypeModal] = useState(false);
 
   async function loadEvenementen() {
     setLoading(true);
@@ -82,9 +83,14 @@ function AanwezigheidContent() {
           <p className="text-sm text-gray-500">Reageer op geplande momenten vóór de deadline.</p>
         </div>
         {isHoofdbeheerder && (
-          <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700">
-            <Plus className="h-4 w-4" />Nieuw
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => setShowTypeModal(true)} className="flex items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-xs font-semibold text-gray-600 hover:bg-gray-50">
+              <Settings className="h-4 w-4" />Standaarden
+            </button>
+            <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700">
+              <Plus className="h-4 w-4" />Nieuw
+            </button>
+          </div>
         )}
       </div>
 
@@ -103,6 +109,13 @@ function AanwezigheidContent() {
             setMessage('Aanwezigheid aangemaakt.');
             loadEvenementen().then(() => selectEvent(id));
           }}
+        />
+      )}
+
+      {showTypeModal && (
+        <TypeManagementModal
+          onClose={() => setShowTypeModal(false)}
+          onSaved={() => { setShowTypeModal(false); setMessage('Standaarden opgeslagen.'); }}
         />
       )}
 
@@ -126,7 +139,7 @@ function AanwezigheidContent() {
                   )}
                 </div>
                 <p className={`mt-0.5 text-xs ${event.id === selectedId ? 'text-blue-100' : 'text-gray-400'}`}>
-                  Deadline {format(parseISO(event.deadline), 'dd MMM HH:mm', { locale: nl })}
+                  {datums.length > 0 && datums[0]?.deadline ? `Deadline ${format(parseISO(datums[0].deadline), 'dd MMM HH:mm', { locale: nl })}` : ''}
                 </p>
               </button>
             ))}
@@ -148,9 +161,8 @@ function AanwezigheidContent() {
   );
 }
 
-function computeDeadline(type: AanwezigheidType | null, referenceDate: string): string {
-  if (!type) return '';
-  const ref = new Date(referenceDate + 'T00:00:00');
+function computeDeadlineForDate(type: AanwezigheidType, dateStr: string): string {
+  const ref = new Date(dateStr + 'T00:00:00');
   const deadlineDate = subDays(ref, type.deadline_dagen_voor);
   return format(deadlineDate, "yyyy-MM-dd") + 'T' + type.deadline_tijd;
 }
@@ -163,10 +175,10 @@ function CreateEventModal({ onClose, onCreated }: {
   const [types, setTypes] = useState<AanwezigheidType[]>([]);
   const [naam, setNaam] = useState('');
   const [typeId, setTypeId] = useState('');
-  const [deadline, setDeadline] = useState('');
   const [month, setMonth] = useState(new Date());
   const [selectedDates, setSelectedDates] = useState<string[]>([]);
-  const [dateNames, setDateNames] = useState<Record<string, string>>({});
+  const [dateDeadlines, setDateDeadlines] = useState<Record<string, string>>({});
+  const [editingDeadlineFor, setEditingDeadlineFor] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -181,9 +193,12 @@ function CreateEventModal({ onClose, onCreated }: {
   const selectedType = types.find(t => t.id === typeId) ?? null;
 
   useEffect(() => {
-    if (selectedType && selectedDates.length > 0) {
-      const earliest = [...selectedDates].sort()[0];
-      setDeadline(computeDeadline(selectedType, earliest));
+    if (selectedType) {
+      const newDeadlines: Record<string, string> = {};
+      for (const d of selectedDates) {
+        newDeadlines[d] = computeDeadlineForDate(selectedType, d);
+      }
+      setDateDeadlines(newDeadlines);
     }
   }, [selectedType, selectedDates]);
 
@@ -194,31 +209,40 @@ function CreateEventModal({ onClose, onCreated }: {
     setSelectedDates(prev => {
       if (prev.includes(dateStr)) {
         const next = prev.filter(d => d !== dateStr);
-        const names = { ...dateNames };
-        delete names[dateStr];
-        setDateNames(names);
+        const dl = { ...dateDeadlines };
+        delete dl[dateStr];
+        setDateDeadlines(dl);
         return next;
       }
       return [...prev, dateStr].sort();
     });
   }
 
+  function updateDeadline(dateStr: string, value: string) {
+    setDateDeadlines(prev => ({ ...prev, [dateStr]: value }));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!naam.trim()) { setError('Vul een naam in.'); return; }
     if (selectedDates.length === 0) { setError('Selecteer minimaal één datum.'); return; }
-    if (!deadline) { setError('Vul een deadline in.'); return; }
-    const parsedDeadline = new Date(deadline);
-    if (Number.isNaN(parsedDeadline.getTime())) { setError('Ongeldige deadline.'); return; }
+
+    for (const d of selectedDates) {
+      if (!dateDeadlines[d]) { setError(`Vul een deadline in voor ${format(parseISO(d), 'dd MMM', { locale: nl })}.`); return; }
+      const parsed = new Date(dateDeadlines[d]);
+      if (Number.isNaN(parsed.getTime())) { setError(`Ongeldige deadline voor ${format(parseISO(d), 'dd MMM', { locale: nl })}.`); return; }
+    }
 
     setSaving(true);
     setError('');
+
+    const firstDeadline = new Date(dateDeadlines[selectedDates[0]]).toISOString();
 
     const { data: eventData, error: eventError } = await supabase
       .from('aanwezigheid_evenementen')
       .insert({
         naam: naam.trim(),
-        deadline: parsedDeadline.toISOString(),
+        deadline: firstDeadline,
         type_id: typeId || null,
         created_by: profile!.id,
       })
@@ -234,7 +258,8 @@ function CreateEventModal({ onClose, onCreated }: {
     const datumRows = selectedDates.map(d => ({
       evenement_id: eventData.id,
       datum: d,
-      naam: dateNames[d]?.trim() || null,
+      naam: naam.trim(),
+      deadline: new Date(dateDeadlines[d]).toISOString(),
     }));
 
     const { error: datumError } = await supabase.from('aanwezigheid_datums').insert(datumRows);
@@ -255,7 +280,7 @@ function CreateEventModal({ onClose, onCreated }: {
         <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between rounded-t-3xl sm:rounded-t-2xl z-10">
           <div>
             <h2 className="text-base font-bold text-gray-900">Nieuwe aanwezigheid</h2>
-            <p className="text-xs text-gray-400">Naam, deadline en datums instellen</p>
+            <p className="text-xs text-gray-400">Naam, type en datums instellen</p>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
             <X className="h-5 w-5 text-gray-500" />
@@ -278,41 +303,34 @@ function CreateEventModal({ onClose, onCreated }: {
               autoFocus
               className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            <p className="mt-1 text-xs text-gray-400">Alle geselecteerde datums krijgen deze naam.</p>
           </div>
 
           <div>
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Type (deadline-standaard)</label>
-            <div className="flex gap-2 flex-wrap">
-              {types.map(t => (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setTypeId(t.id)}
-                  className={`rounded-xl px-3 py-2 text-sm font-medium transition-colors border-2 ${
-                    t.id === typeId ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'
-                  }`}
-                >
-                  {t.naam}
-                </button>
-              ))}
-            </div>
+            {types.length === 0 ? (
+              <p className="text-xs text-gray-400">Nog geen standaarden aangemaakt. Ga naar "Standaarden" om er een toe te voegen.</p>
+            ) : (
+              <div className="flex gap-2 flex-wrap">
+                {types.map(t => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setTypeId(t.id)}
+                    className={`rounded-xl px-3 py-2 text-sm font-medium transition-colors border-2 ${
+                      t.id === typeId ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                    }`}
+                  >
+                    {t.naam}
+                  </button>
+                ))}
+              </div>
+            )}
             {selectedType && (
               <p className="mt-1.5 text-xs text-gray-400">
-                Standaard deadline: {selectedType.deadline_dagen_voor === 0 ? 'dezelfde dag' : `${selectedType.deadline_dagen_voor} dag(en) ervoor`} om {selectedType.deadline_tijd}
+                Deadline per datum: {selectedType.deadline_dagen_voor === 0 ? 'dezelfde dag' : `${selectedType.deadline_dagen_voor} dag(en) ervoor`} om {selectedType.deadline_tijd}
               </p>
             )}
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Deadline (handmatig aanpasbaar)</label>
-            <input
-              type="datetime-local"
-              value={deadline}
-              onChange={e => setDeadline(e.target.value)}
-              required
-              className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="mt-1 text-xs text-gray-400">Wordt auto-ingevuld op basis van het type, maar kan je handmatig wijzigen.</p>
           </div>
 
           <div>
@@ -349,27 +367,45 @@ function CreateEventModal({ onClose, onCreated }: {
                 })}
               </div>
             </div>
+          </div>
 
-            {selectedDates.length > 0 && (
-              <div className="mt-3 space-y-2 max-h-32 overflow-y-auto">
+          {selectedDates.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Deadlines per datum (aanpasbaar)</p>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
                 {selectedDates.map(d => (
-                  <div key={d} className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500 w-20 capitalize">{format(parseISO(d), 'dd MMM', { locale: nl })}</span>
-                    <input
-                      type="text"
-                      value={dateNames[d] ?? ''}
-                      onChange={e => setDateNames(prev => ({ ...prev, [d]: e.target.value }))}
-                      placeholder="Naam (bijv. Training)"
-                      className="flex-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <button type="button" onClick={() => toggleDate(d)} className="p-1 rounded text-gray-400 hover:text-red-600">
-                      <X className="h-3.5 w-3.5" />
-                    </button>
+                  <div key={d} className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-2.5">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs font-semibold text-gray-700 capitalize">{format(parseISO(d), 'EEEE d MMMM', { locale: nl })}</span>
+                      <button type="button" onClick={() => toggleDate(d)} className="text-xs text-gray-400 hover:text-red-600">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    {editingDeadlineFor === d ? (
+                      <div className="flex gap-2">
+                        <input
+                          type="datetime-local"
+                          value={dateDeadlines[d] ?? ''}
+                          onChange={e => updateDeadline(d, e.target.value)}
+                          className="flex-1 px-2.5 py-1.5 rounded-lg border border-gray-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <button type="button" onClick={() => setEditingDeadlineFor(null)} className="text-xs font-semibold text-blue-600 px-2">Klaar</button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setEditingDeadlineFor(d)}
+                        className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-blue-600"
+                      >
+                        <Clock className="h-3.5 w-3.5" />
+                        {dateDeadlines[d] ? format(new Date(dateDeadlines[d]), 'EEE d MMM HH:mm', { locale: nl }) : 'Stel deadline in'}
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           <div className="flex gap-3 pt-2">
             <button
@@ -394,6 +430,163 @@ function CreateEventModal({ onClose, onCreated }: {
   );
 }
 
+function TypeManagementModal({ onClose, onSaved }: {
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { profile } = useAuth();
+  const [types, setTypes] = useState<AanwezigheidType[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newNaam, setNewNaam] = useState('');
+  const [newDagenVoor, setNewDagenVoor] = useState(0);
+  const [newTijd, setNewTijd] = useState('15:00');
+  const [saving, setSaving] = useState(false);
+
+  async function loadTypes() {
+    const { data } = await supabase.from('aanwezigheid_types').select('*').order('volgorde');
+    setTypes((data ?? []) as AanwezigheidType[]);
+    setLoading(false);
+  }
+
+  useEffect(() => { loadTypes(); }, []);
+
+  async function addType(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newNaam.trim()) { setError('Vul een naam in.'); return; }
+    setSaving(true);
+    setError('');
+    const { error: insertError } = await supabase.from('aanwezigheid_types').insert({
+      naam: newNaam.trim(),
+      deadline_dagen_voor: newDagenVoor,
+      deadline_tijd: newTijd,
+      volgorde: types.length + 1,
+    });
+    setSaving(false);
+    if (insertError) { setError(insertError.message); return; }
+    setNewNaam('');
+    setNewDagenVoor(0);
+    setNewTijd('15:00');
+    setShowAddForm(false);
+    await loadTypes();
+  }
+
+  async function deleteType(id: string) {
+    if (!window.confirm('Deze standaard verwijderen?')) return;
+    const { error: delError } = await supabase.from('aanwezigheid_types').delete().eq('id', id);
+    if (delError) { setError(delError.message); return; }
+    await loadTypes();
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center px-0 sm:px-4 pb-0 sm:pb-6">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-t-3xl sm:rounded-2xl w-full max-w-md shadow-2xl z-10 max-h-[95vh] overflow-y-auto">
+        <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between rounded-t-3xl sm:rounded-t-2xl z-10">
+          <div>
+            <h2 className="text-base font-bold text-gray-900">Deadline-standaarden</h2>
+            <p className="text-xs text-gray-400">Sjablonen voor deadlines bij nieuwe aanwezigheid</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-gray-100 transition-colors">
+            <X className="h-5 w-5 text-gray-500" />
+          </button>
+        </div>
+
+        <div className="px-5 py-4 space-y-4">
+          {error && (
+            <div className="rounded-xl bg-red-50 border border-red-200 px-3 py-2.5 text-sm text-red-700">{error}</div>
+          )}
+
+          {loading ? (
+            <div className="space-y-2">{[1, 2].map(i => <div key={i} className="h-14 bg-gray-100 rounded-xl animate-pulse" />)}</div>
+          ) : (
+            <div className="space-y-2">
+              {types.map(t => (
+                <div key={t.id} className="flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">{t.naam}</p>
+                    <p className="text-xs text-gray-500">
+                      {t.deadline_dagen_voor === 0 ? 'Dezelfde dag' : `${t.deadline_dagen_voor} dag(en) ervoor`} om {t.deadline_tijd}
+                    </p>
+                  </div>
+                  <button onClick={() => deleteType(t.id)} className="p-2 text-gray-400 hover:text-red-600">
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+              {types.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-4">Nog geen standaarden. Voeg er een toe.</p>
+              )}
+            </div>
+          )}
+
+          {showAddForm ? (
+            <form onSubmit={addType} className="space-y-3 rounded-xl border border-blue-100 bg-blue-50/30 p-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Naam</label>
+                <input
+                  type="text"
+                  value={newNaam}
+                  onChange={e => setNewNaam(e.target.value)}
+                  placeholder="bijv. Training, Wedstrijd..."
+                  required
+                  autoFocus
+                  className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Dagen ervoor</label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={30}
+                    value={newDagenVoor}
+                    onChange={e => setNewDagenVoor(Number(e.target.value))}
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Tijd</label>
+                  <input
+                    type="time"
+                    value={newTijd}
+                    onChange={e => setNewTijd(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-gray-400">
+                Voorbeeld: 0 dagen + 15:00 = deadline op dezelfde dag als de activiteit om 15:00.
+              </p>
+              <div className="flex gap-2">
+                <button type="submit" disabled={saving} className="flex-1 bg-blue-600 text-white font-semibold py-2.5 rounded-xl text-sm hover:bg-blue-700 disabled:opacity-60">
+                  {saving ? 'Opslaan...' : 'Toevoegen'}
+                </button>
+                <button type="button" onClick={() => setShowAddForm(false)} className="px-4 bg-gray-100 text-gray-600 font-semibold rounded-xl text-sm hover:bg-gray-200">
+                  Annuleren
+                </button>
+              </div>
+            </form>
+          ) : (
+            <button
+              onClick={() => setShowAddForm(true)}
+              className="w-full flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-200 py-3 text-sm font-semibold text-gray-500 hover:border-blue-300 hover:text-blue-600 transition-colors"
+            >
+              <Plus className="h-4 w-4" />Nieuwe standaard
+            </button>
+          )}
+
+          <button onClick={onSaved} className="w-full bg-gray-100 text-gray-600 font-semibold py-3 rounded-xl text-sm hover:bg-gray-200">
+            Klaar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EventContent({
   event, datums, responses, spelers, isHoofdbeheerder, onReload, onDelete,
 }: {
@@ -408,13 +601,11 @@ function EventContent({
   const { profile } = useAuth();
   const [month, setMonth] = useState(new Date());
   const [selectedDateId, setSelectedDateId] = useState<string | null>(datums[0]?.id ?? null);
-  const [dateName, setDateName] = useState('');
   const [status, setStatus] = useState<'aanwezig' | 'afwezig'>('aanwezig');
   const [reason, setReason] = useState('');
-  const [savingDate, setSavingDate] = useState(false);
   const [savingResponse, setSavingResponse] = useState(false);
   const [dateError, setDateError] = useState('');
-  const [editingDeadline, setEditingDeadline] = useState(false);
+  const [editingDeadlineFor, setEditingDeadlineFor] = useState<string | null>(null);
   const [deadlineInput, setDeadlineInput] = useState('');
 
   useEffect(() => {
@@ -426,7 +617,7 @@ function EventContent({
   const myResponse = responses.find(r => r.datum_id === selectedDateId && r.speler_id === mySpeler?.id);
   const days = useMemo(() => eachDayOfInterval({ start: startOfMonth(month), end: endOfMonth(month) }), [month]);
   const leadingEmpty = (startOfMonth(month).getDay() + 6) % 7;
-  const deadlinePassed = new Date(event.deadline).getTime() < Date.now();
+  const deadlinePassed = selectedDate?.deadline ? new Date(selectedDate.deadline).getTime() < Date.now() : false;
 
   useEffect(() => {
     if (myResponse) {
@@ -438,19 +629,7 @@ function EventContent({
   function chooseDate(date: Date) {
     const existing = datums.find(d => d.datum === format(date, 'yyyy-MM-dd'));
     setSelectedDateId(existing?.id ?? null);
-    setDateName(existing?.naam ?? '');
     setDateError('');
-  }
-
-  async function saveDate() {
-    if (!isHoofdbeheerder) return;
-    if (!dateName.trim()) { setDateError('Geef deze datum eerst een naam.'); return; }
-    const selectedDay = datums.find(d => d.id === selectedDateId);
-    if (!selectedDay) { setDateError('Kies een datum in de kalender.'); return; }
-    setSavingDate(true);
-    const { error } = await supabase.from('aanwezigheid_datums').update({ naam: dateName.trim() }).eq('id', selectedDay.id);
-    setSavingDate(false);
-    if (error) setDateError(error.message); else await onReload();
   }
 
   async function submitResponse() {
@@ -470,55 +649,23 @@ function EventContent({
     else { setDateError(''); await onReload(); }
   }
 
-  async function saveDeadline() {
+  async function saveDatumDeadline(datumId: string) {
     const parsed = new Date(deadlineInput);
     if (Number.isNaN(parsed.getTime())) { setDateError('Ongeldige deadline.'); return; }
-    setSavingDate(true);
-    const { error } = await supabase.from('aanwezigheid_evenementen').update({ deadline: parsed.toISOString() }).eq('id', event.id);
-    setSavingDate(false);
+    setSavingResponse(true);
+    const { error } = await supabase.from('aanwezigheid_datums').update({ deadline: parsed.toISOString() }).eq('id', datumId);
+    setSavingResponse(false);
     if (error) setDateError(error.message);
-    else { setEditingDeadline(false); setDateError(''); await onReload(); }
+    else { setEditingDeadlineFor(null); setDateError(''); await onReload(); }
   }
 
-  const deadlineLocal = (() => {
-    try { return new Date(event.deadline).toISOString().slice(0, 16); } catch { return ''; }
-  })();
+  const deadlineLocal = (dl: string | null) => {
+    if (!dl) return '';
+    try { return new Date(dl).toISOString().slice(0, 16); } catch { return ''; }
+  };
 
   return (
     <div className="space-y-4">
-      {/* Deadline bar */}
-      <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 text-gray-400" />
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Deadline</p>
-              <p className={`text-sm font-medium ${deadlinePassed ? 'text-red-600' : 'text-gray-800'}`}>
-                {format(parseISO(event.deadline), 'EEEE d MMMM yyyy HH:mm', { locale: nl })}
-                {deadlinePassed && ' (verstreken)'}
-              </p>
-            </div>
-          </div>
-          {isHoofdbeheerder && !editingDeadline && (
-            <button onClick={() => { setDeadlineInput(deadlineLocal); setEditingDeadline(true); }} className="text-xs text-blue-600 font-medium hover:text-blue-800">
-              Wijzig
-            </button>
-          )}
-        </div>
-        {editingDeadline && (
-          <div className="mt-3 flex gap-2">
-            <input
-              type="datetime-local"
-              value={deadlineInput}
-              onChange={e => setDeadlineInput(e.target.value)}
-              className="flex-1 px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button onClick={saveDeadline} disabled={savingDate} className="bg-green-600 text-white rounded-xl px-3 py-2 text-xs font-semibold hover:bg-green-700 disabled:opacity-60">Opslaan</button>
-            <button onClick={() => setEditingDeadline(false)} className="bg-gray-100 text-gray-600 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-gray-200">Annuleer</button>
-          </div>
-        )}
-      </div>
-
       {/* Calendar */}
       <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
         <div className="mb-4 flex items-center justify-between">
@@ -538,6 +685,8 @@ function EventContent({
           {days.map(day => {
             const planned = datums.find(d => d.datum === format(day, 'yyyy-MM-dd'));
             const selected = planned?.id === selectedDateId;
+            const dl = planned?.deadline;
+            const passed = dl ? new Date(dl).getTime() < Date.now() : false;
             return (
               <button
                 key={day.toISOString()}
@@ -550,24 +699,11 @@ function EventContent({
                 }`}
               >
                 {format(day, 'd')}
-                {planned && <span className={`absolute bottom-0.5 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full ${selected ? 'bg-white' : 'bg-blue-500'}`} />}
+                {planned && <span className={`absolute bottom-0.5 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full ${selected ? 'bg-white' : passed ? 'bg-red-500' : 'bg-blue-500'}`} />}
               </button>
             );
           })}
         </div>
-        {isHoofdbeheerder && selectedDate && (
-          <div className="mt-4 flex gap-2">
-            <input
-              value={dateName}
-              onChange={e => setDateName(e.target.value)}
-              placeholder="Naam van deze datum"
-              className="min-w-0 flex-1 rounded-xl border border-gray-200 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button onClick={saveDate} disabled={savingDate} className="flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60">
-              <Save className="h-3.5 w-3.5" />Naam opslaan
-            </button>
-          </div>
-        )}
         {dateError && <p className="mt-2 text-xs text-red-600">{dateError}</p>}
       </div>
 
@@ -578,16 +714,23 @@ function EventContent({
           <div className="flex gap-2 overflow-x-auto pb-1">
             {datums.map(d => {
               const count = responses.filter(r => r.datum_id === d.id).length;
+              const dl = d.deadline;
+              const passed = dl ? new Date(dl).getTime() < Date.now() : false;
               return (
                 <button
                   key={d.id}
-                  onClick={() => { setSelectedDateId(d.id); setDateName(d.naam ?? ''); }}
+                  onClick={() => setSelectedDateId(d.id)}
                   className={`shrink-0 rounded-xl px-3 py-2.5 text-left transition-colors ${d.id === selectedDateId ? 'bg-blue-600 text-white' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'}`}
                 >
-                  <p className="text-sm font-semibold">{d.naam || 'Zonder naam'}</p>
+                  <p className="text-sm font-semibold">{d.naam || event.naam}</p>
                   <p className={`text-xs ${d.id === selectedDateId ? 'text-blue-100' : 'text-gray-400'}`}>
-                    {format(parseISO(d.datum), 'dd MMM yyyy', { locale: nl })} — {count} reacties
+                    {format(parseISO(d.datum), 'dd MMM yyyy', { locale: nl })}
                   </p>
+                  {dl && (
+                    <p className={`text-[10px] mt-0.5 ${passed ? 'text-red-500' : d.id === selectedDateId ? 'text-blue-200' : 'text-gray-400'}`}>
+                      Deadline {format(parseISO(dl), 'dd MMM HH:mm', { locale: nl })}
+                    </p>
+                  )}
                 </button>
               );
             })}
@@ -600,15 +743,46 @@ function EventContent({
         <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
           <div className="mb-4 flex items-start justify-between">
             <div>
-              <p className="text-base font-semibold text-gray-900">{selectedDate.naam || 'Activiteit'}</p>
+              <p className="text-base font-semibold text-gray-900">{selectedDate.naam || event.naam}</p>
               <p className="text-xs text-gray-400 capitalize">{format(parseISO(selectedDate.datum), 'EEEE d MMMM yyyy', { locale: nl })}</p>
+              {selectedDate.deadline && (
+                <p className={`text-xs mt-0.5 flex items-center gap-1 ${deadlinePassed ? 'text-red-600' : 'text-gray-500'}`}>
+                  <Clock className="h-3 w-3" />
+                  Deadline {format(parseISO(selectedDate.deadline), 'd MMMM HH:mm', { locale: nl })}
+                  {deadlinePassed && ' (verstreken)'}
+                </p>
+              )}
             </div>
             {isHoofdbeheerder && (
-              <button onClick={onDelete} className="flex items-center gap-1 text-xs text-red-600">
-                <Trash2 className="h-3.5 w-3.5" />Verwijder aanwezigheid
-              </button>
+              <div className="flex gap-2">
+                {selectedDate.deadline && !editingDeadlineFor && (
+                  <button
+                    onClick={() => { setDeadlineInput(deadlineLocal(selectedDate.deadline)); setEditingDeadlineFor(selectedDate.id); }}
+                    className="text-xs text-blue-600 font-medium hover:text-blue-800"
+                  >
+                    Deadline wijzigen
+                  </button>
+                )}
+                <button onClick={onDelete} className="flex items-center gap-1 text-xs text-red-600">
+                  <Trash2 className="h-3.5 w-3.5" />Verwijder
+                </button>
+              </div>
             )}
           </div>
+
+          {/* Deadline editing for this specific date */}
+          {editingDeadlineFor === selectedDate.id && (
+            <div className="mb-4 flex gap-2 rounded-xl bg-blue-50 p-3">
+              <input
+                type="datetime-local"
+                value={deadlineInput}
+                onChange={e => setDeadlineInput(e.target.value)}
+                className="flex-1 px-3 py-2 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <button onClick={() => saveDatumDeadline(selectedDate.id)} disabled={savingResponse} className="bg-green-600 text-white rounded-xl px-3 py-2 text-xs font-semibold hover:bg-green-700 disabled:opacity-60">Opslaan</button>
+              <button onClick={() => setEditingDeadlineFor(null)} className="bg-gray-100 text-gray-600 rounded-xl px-3 py-2 text-xs font-semibold hover:bg-gray-200">Annuleer</button>
+            </div>
+          )}
 
           <AllResponses responses={responses.filter(r => r.datum_id === selectedDate.id)} spelers={spelers} />
 
