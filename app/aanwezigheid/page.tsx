@@ -5,8 +5,8 @@ import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { supabase, AanwezigheidDatum, AanwezigheidEvenement, AanwezigheidResponse, AanwezigheidType, Speler } from '@/lib/supabase';
-import { CalendarCheck, ChevronLeft, ChevronRight, Plus, Save, Trash2, Users, X, Clock, AlertTriangle, Check, Settings, Search } from 'lucide-react';
-import { addMonths, eachDayOfInterval, endOfMonth, format, parseISO, startOfMonth, subMonths, subDays, isToday, isSameDay } from 'date-fns';
+import { CalendarCheck, ChevronLeft, ChevronRight, Plus, Trash2, Users, X, Clock, AlertTriangle, Check, Settings, Search } from 'lucide-react';
+import { addMonths, eachDayOfInterval, endOfMonth, format, parseISO, startOfMonth, subMonths, subDays, isToday } from 'date-fns';
 import { nl } from 'date-fns/locale';
 
 export default function AanwezigheidPage() {
@@ -36,6 +36,7 @@ function AanwezigheidContent() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showTypeModal, setShowTypeModal] = useState(false);
   const [selectedEventIds, setSelectedEventIds] = useState<Set<string>>(new Set());
+  const [filtersInitialized, setFiltersInitialized] = useState(false);
   const [search, setSearch] = useState('');
   const [selectedDatumId, setSelectedDatumId] = useState<string | null>(null);
   const [confirmDeleteDatum, setConfirmDeleteDatum] = useState<string | null>(null);
@@ -67,8 +68,9 @@ function AanwezigheidContent() {
     setAllDatums(datumsList);
     setAllResponses(responsesList);
 
-    if (selectedEventIds.size === 0 && nextEvents.length > 0) {
-      setSelectedEventIds(new Set(nextEvents.map(e => e.id)));
+    if (!filtersInitialized) {
+      setSelectedEventIds(new Set(datumsList.map(d => d.evenement_id)));
+      setFiltersInitialized(true);
     }
 
     if (datumsList.length > 0) {
@@ -100,11 +102,15 @@ function AanwezigheidContent() {
 
   useEffect(() => { loadAll(); }, []);
 
+  const visibleEvents = useMemo(() => {
+    const eventIdsWithDates = new Set(allDatums.map(d => d.evenement_id));
+    return evenementen.filter(event => eventIdsWithDates.has(event.id));
+  }, [evenementen, allDatums]);
+
   const filteredDatums = useMemo(() => {
-    let result = allDatums;
-    if (selectedEventIds.size > 0 && selectedEventIds.size < evenementen.length) {
-      result = result.filter(d => selectedEventIds.has(d.evenement_id));
-    }
+    let result = selectedEventIds.size === 0
+      ? []
+      : allDatums.filter(d => selectedEventIds.has(d.evenement_id));
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter(d =>
@@ -114,7 +120,7 @@ function AanwezigheidContent() {
       );
     }
     return [...result].sort((a, b) => a.datum.localeCompare(b.datum));
-  }, [allDatums, selectedEventIds, evenementen.length, search]);
+  }, [allDatums, selectedEventIds, search]);
 
   const selectedDatum = filteredDatums.find(d => d.id === selectedDatumId) ?? filteredDatums[0] ?? null;
   const selectedEvent = selectedDatum?.evenement ?? null;
@@ -123,13 +129,6 @@ function AanwezigheidContent() {
     const { error } = await supabase.from('aanwezigheid_datums').delete().eq('id', datumId);
     if (error) setMessage(error.message);
     else { setMessage('Activiteit verwijderd.'); setConfirmDeleteDatum(null); await loadAll(); }
-  }
-
-  async function handleDeleteEvent(eventId: string) {
-    if (!window.confirm('Deze aanwezigheid en alle bijbehorende datums verwijderen?')) return;
-    const { error } = await supabase.from('aanwezigheid_evenementen').delete().eq('id', eventId);
-    if (error) setMessage(error.message);
-    else { setMessage('Aanwezigheid verwijderd.'); await loadAll(); }
   }
 
   function toggleEventFilter(id: string) {
@@ -188,9 +187,9 @@ function AanwezigheidContent() {
       )}
 
       {/* Event filter chips */}
-      {evenementen.length > 0 && (
+      {visibleEvents.length > 0 && (
         <div className="flex gap-2 flex-wrap">
-          {evenementen.map(event => {
+          {visibleEvents.map(event => {
             const active = selectedEventIds.has(event.id);
             return (
               <button
@@ -283,7 +282,6 @@ function AanwezigheidContent() {
               isHoofdbeheerder={isHoofdbeheerder}
               onReload={loadAll}
               onDeleteDatum={handleDeleteDatum}
-              onDeleteEvent={() => handleDeleteEvent(selectedEvent.id)}
               confirmDeleteDatum={confirmDeleteDatum}
               setConfirmDeleteDatum={setConfirmDeleteDatum}
             />
@@ -348,7 +346,7 @@ function CalendarView({ datums, selectedDatumId, onSelectDatum }: {
 }
 
 function DatumDetail({
-  datum, event, responses, spelers, isHoofdbeheerder, onReload, onDeleteDatum, onDeleteEvent, confirmDeleteDatum, setConfirmDeleteDatum,
+  datum, event, responses, spelers, isHoofdbeheerder, onReload, onDeleteDatum, confirmDeleteDatum, setConfirmDeleteDatum,
 }: {
   datum: AllDatumWithEvent;
   event: AanwezigheidEvenement;
@@ -357,7 +355,6 @@ function DatumDetail({
   isHoofdbeheerder: boolean;
   onReload: () => Promise<void>;
   onDeleteDatum: (id: string) => Promise<void>;
-  onDeleteEvent: () => void;
   confirmDeleteDatum: string | null;
   setConfirmDeleteDatum: (id: string | null) => void;
 }) {
@@ -452,32 +449,24 @@ function DatumDetail({
                   Tijd wijzigen
                 </button>
               )}
-              <button onClick={() => setConfirmDeleteDatum(datum.id)} className="flex items-center gap-1 text-xs text-red-600">
-                <Trash2 className="h-3.5 w-3.5" />Verwijder
-              </button>
+              {confirmDeleteDatum === datum.id ? (
+                <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                  <span>Verwijderen?</span>
+                  <button onClick={() => onDeleteDatum(datum.id)} className="flex items-center gap-0.5 font-semibold text-red-600 hover:text-red-700">
+                    <Trash2 className="h-3.5 w-3.5" />Ja
+                  </button>
+                  <span className="text-gray-300">×</span>
+                  <button onClick={() => setConfirmDeleteDatum(null)} className="font-semibold text-gray-500 hover:text-gray-700">Nee</button>
+                </div>
+              ) : (
+                <button onClick={() => setConfirmDeleteDatum(datum.id)} className="flex items-center gap-1 text-xs text-red-600">
+                  <Trash2 className="h-3.5 w-3.5" />Verwijder
+                </button>
+              )}
             </div>
           </div>
         )}
       </div>
-
-      {/* Delete confirmation */}
-      {confirmDeleteDatum === datum.id && (
-        <div className="mb-4 rounded-xl bg-red-50 border border-red-200 p-4">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">
-              <AlertTriangle className="h-4 w-4 text-red-600" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-gray-900">Activiteit verwijderen?</p>
-              <p className="text-xs text-gray-500">Deze datum wordt verwijderd. Dit kan niet ongedaan gemaakt worden.</p>
-            </div>
-          </div>
-          <div className="flex gap-3">
-            <button onClick={() => setConfirmDeleteDatum(null)} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-50 transition-colors">Nee</button>
-            <button onClick={() => onDeleteDatum(datum.id)} className="flex-1 py-2.5 bg-red-600 text-white rounded-xl text-xs font-semibold hover:bg-red-700 transition-colors">Ja, verwijderen</button>
-          </div>
-        </div>
-      )}
 
       {/* Deadline editing */}
       {editingDeadline && (
