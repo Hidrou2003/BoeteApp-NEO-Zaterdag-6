@@ -4,9 +4,9 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
-import { supabase, Activiteit, Speler, Boetecategorie, calcBedrag, formatBedrag, AppInstellingen } from '@/lib/supabase';
+import { supabase, Activiteit, Speler, Boetecategorie, calcBedrag, formatBedrag, AppInstellingen, AanwezigheidResponse } from '@/lib/supabase';
 import { useAuth } from '@/lib/auth-context';
-import { ArrowLeft, ArrowRight, CheckCircle, Minus, Plus, Zap, User, UserCheck, UserX, Calendar, Euro, Users } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle, Minus, Plus, Zap, User, UserCheck, UserX, Calendar, Euro, Users, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 
 type Aanwezigheid = 'aanwezig' | 'geoorloofd_afwezig' | 'ongeoorloofd_afwezig';
@@ -15,6 +15,8 @@ interface SpelerState {
   speler: Speler;
   aanwezigheid: Aanwezigheid | null;
   boetes: Record<string, { aantal: number; bedrag?: number }>; // categorie_id -> {aantal, optional custom bedrag for open_bedrag}
+  isLateResponse?: boolean;
+  afwezigReden?: string | null;
 }
 
 interface TeamBoeteState {
@@ -94,6 +96,19 @@ function FlowContent() {
     const teamCats = sortedCats.filter(c => c.is_teamboete);
 
     // Build player states
+    // Fetch aanwezigheid responses if the activity is linked to an aanwezigheid event
+    let lateResponseMap = new Map<string, { isLate: boolean; reden: string | null }>();
+    if (act.aanwezigheid_evenement_id) {
+      const { data: aanwezigResponses } = await supabase
+        .from('aanwezigheid_responses')
+        .select('*, spelers(*)')
+        .eq('evenement_id', act.aanwezigheid_evenement_id);
+      for (const r of (aanwezigResponses ?? []) as AanwezigheidResponse[]) {
+        const spelerId = r.spelers?.id ?? r.speler_id;
+        lateResponseMap.set(spelerId, { isLate: r.is_late, reden: r.reden });
+      }
+    }
+
     const states: SpelerState[] = sps.map(sp => {
       const existing = existingSpelers?.find(e => e.speler_id === sp.id);
       const boetes: Record<string, { aantal: number; bedrag?: number }> = {};
@@ -106,7 +121,14 @@ function FlowContent() {
           }
         }
       }
-      return { speler: sp, aanwezigheid: existing?.aanwezigheid ?? null, boetes };
+      const lateInfo = lateResponseMap.get(sp.id);
+      return {
+        speler: sp,
+        aanwezigheid: existing?.aanwezigheid ?? null,
+        boetes,
+        isLateResponse: lateInfo?.isLate,
+        afwezigReden: lateInfo?.reden,
+      };
     });
     setSpelers(states);
 
@@ -530,8 +552,18 @@ function FlowContent() {
               <User className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-white">{current.speler.naam}</h2>
-              {eigenTotaal > 0 && <p className="text-blue-200 text-sm font-medium">{formatBedrag(eigenTotaal)} eigen boetes</p>}
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-xl font-bold text-white">{current.speler.naam}</h2>
+                {current.isLateResponse && (
+                  <span className="flex items-center gap-1 text-[10px] font-semibold bg-amber-400/90 text-amber-950 px-1.5 py-0.5 rounded-full">
+                    <AlertTriangle className="h-2.5 w-2.5" />Te laat aangemeld
+                  </span>
+                )}
+              </div>
+              {current.afwezigReden && (
+                <p className="text-blue-100 text-xs mt-0.5">Reden afwezigheid: {current.afwezigReden}</p>
+              )}
+              {eigenTotaal > 0 && <p className="text-blue-200 text-sm font-medium mt-0.5">{formatBedrag(eigenTotaal)} eigen boetes</p>}
             </div>
           </div>
         </div>

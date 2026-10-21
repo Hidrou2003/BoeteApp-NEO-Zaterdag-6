@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
-import { supabase, AanwezigheidEvenement } from '@/lib/supabase';
+import { supabase, AanwezigheidEvenement, AanwezigheidDatum, AanwezigheidResponse } from '@/lib/supabase';
 import { ArrowLeft, Zap, Calendar } from 'lucide-react';
 import { format } from 'date-fns';
 import Link from 'next/link';
@@ -29,6 +29,8 @@ function NieuweActiviteitContent() {
   const [isDubbeleMaand, setIsDubbeleMaand] = useState(false);
   const [aanwezigheidEvenementId, setAanwezigheidEvenementId] = useState('');
   const [aanwezigheidEvenementen, setAanwezigheidEvenementen] = useState<AanwezigheidEvenement[]>([]);
+  const [linkedDatums, setLinkedDatums] = useState<AanwezigheidDatum[]>([]);
+  const [responses, setResponses] = useState<AanwezigheidResponse[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -36,10 +38,32 @@ function NieuweActiviteitContent() {
 
   useEffect(() => {
     if (!isBeheerder) return;
-    supabase.from('aanwezigheid_evenementen').select('*').order('deadline', { ascending: false }).then(({ data }) => {
+    supabase.from('aanwezigheid_evenementen').select('*, aanwezigheid_types(*)').order('deadline', { ascending: false }).then(({ data }) => {
       setAanwezigheidEvenementen((data ?? []) as AanwezigheidEvenement[]);
     });
   }, [isBeheerder]);
+
+  useEffect(() => {
+    if (!aanwezigheidEvenementId) {
+      setLinkedDatums([]);
+      setResponses([]);
+      return;
+    }
+    Promise.all([
+      supabase.from('aanwezigheid_datums').select('*').eq('evenement_id', aanwezigheidEvenementId).order('datum'),
+      supabase.from('aanwezigheid_responses').select('*, spelers(*)').eq('evenement_id', aanwezigheidEvenementId),
+    ]).then(([{ data: dates }, { data: resp }]) => {
+      setLinkedDatums((dates ?? []) as AanwezigheidDatum[]);
+      setResponses((resp ?? []) as AanwezigheidResponse[]);
+    });
+  }, [aanwezigheidEvenementId]);
+
+  // Auto-set the activity date to the first linked datum if available
+  useEffect(() => {
+    if (linkedDatums.length > 0 && linkedDatums[0]) {
+      setDatum(linkedDatums[0].datum);
+    }
+  }, [linkedDatums]);
 
   if (!isBeheerder) {
     return (
@@ -76,8 +100,55 @@ function NieuweActiviteitContent() {
       return;
     }
 
+    // Auto-populate attendance from linked aanwezigheid event
+    if (aanwezigheidEvenementId && linkedDatums.length > 0) {
+      // Find the datum that matches the activity date, or use the first one
+      const matchingDatum = linkedDatums.find(d => d.datum === datum) ?? linkedDatums[0];
+      if (matchingDatum) {
+        // Fetch all active spelers (not just doe_mee_aan_boetes, since we want everyone's attendance)
+        const { data: allSpelers } = await supabase
+          .from('spelers')
+          .select('*')
+          .eq('actief', true)
+          .order('naam');
+
+        const datumResponses = responses.filter(r => r.datum_id === matchingDatum.id);
+        const responseMap = new Map(datumResponses.map(r => [r.speler_id, r]));
+
+        // Create activiteit_spelers rows with auto-populated attendance
+        const spelerRows = (allSpelers ?? []).map(sp => {
+          const resp = responseMap.get(sp.id);
+          let aanwezigheid: 'aanwezig' | 'geoorloofd_afwezig' | null = null;
+          if (resp?.status === 'aanwezig') {
+            aanwezigheid = 'aanwezig';
+          } else if (resp?.status === 'afwezig') {
+            aanwezigheid = 'geoorloofd_afwezig';
+          }
+          return {
+            activiteit_id: data.id,
+            speler_id: sp.id,
+            aanwezigheid,
+            eigen_boetes_totaal: 0,
+            gemiddeld_bedrag: 0,
+            opslag_bedrag: 0,
+            totaal_bedrag: 0,
+            aanwezigheid_datum_id: resp ? matchingDatum.id : null,
+          };
+        }).filter(row => row.aanwezigheid !== null);
+
+        if (spelerRows.length > 0) {
+          await supabase.from('activiteit_spelers').upsert(spelerRows, { onConflict: 'activiteit_id,speler_id' });
+        }
+      }
+    }
+
     router.push(`/activiteit/${data.id}/flow`);
   }
+
+  const linkedDatumMatch = linkedDatums.find(d => d.datum === datum);
+  const linkedResponses = linkedDatumMatch ? responses.filter(r => r.datum_id === linkedDatumMatch.id) : [];
+  const aanwezigCount = linkedResponses.filter(r => r.status === 'aanwezig').length;
+  const afwezigCount = linkedResponses.filter(r => r.status === 'afwezig').length;
 
   return (
     <div className="space-y-6">
@@ -114,6 +185,9 @@ function NieuweActiviteitContent() {
               required
               className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
             />
+            {linkedDatums.length > 0 && !linkedDatumMatch && (
+              <p className="mt-1.5 text-xs text-amber-600">Let op: de geselecteerde datum komt niet overeen met een geplande datum uit de aanwezigheid. Spelers worden niet automatisch ingevuld.</p>
+            )}
           </div>
 
           <div>
@@ -125,11 +199,27 @@ function NieuweActiviteitContent() {
             >
               <option value="">Geen koppeling</option>
               {aanwezigheidEvenementen.map(event => (
-                <option key={event.id} value={event.id}>{event.naam} — deadline {new Date(event.deadline).toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' })}</option>
+                <option key={event.id} value={event.id}>
+                  {event.naam}
+                  {event.aanwezigheid_types ? ` (${event.aanwezigheid_types.naam})` : ''}
+                  {' — deadline '}
+                  {new Date(event.deadline).toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' })}
+                </option>
               ))}
             </select>
-            <p className="mt-1.5 text-xs text-gray-400">Koppel een eerder aangemaakte aanwezigheid aan deze activiteit.</p>
+            <p className="mt-1.5 text-xs text-gray-400">Koppel een eerder aangemaakte aanwezigheid. Spelers worden automatisch ingevuld op basis van hun reacties.</p>
           </div>
+
+          {/* Auto-populate preview */}
+          {aanwezigheidEvenementId && linkedDatumMatch && linkedResponses.length > 0 && (
+            <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3">
+              <p className="text-sm font-semibold text-blue-800">Automatische invulling</p>
+              <p className="text-xs text-blue-600 mt-0.5">
+                {aanwezigCount} spelers worden op 'aanwezig' gezet, {afwezigCount} op 'geoorloofd afwezig' (met reden).
+                De beheerder kan dit tijdens het invullen nog wijzigen naar ongeoorloord.
+              </p>
+            </div>
+          )}
 
           {/* Dubbele activiteit toggle */}
           <div>

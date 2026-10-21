@@ -81,12 +81,23 @@ export interface Activiteit {
   aanwezigheid_evenement_id?: string | null;
 }
 
+export interface AanwezigheidType {
+  id: string;
+  naam: string;
+  deadline_dagen_voor: number;
+  deadline_tijd: string;
+  volgorde: number;
+  created_at: string;
+}
+
 export interface AanwezigheidEvenement {
   id: string;
   naam: string;
   deadline: string;
+  type_id: string | null;
   created_by: string | null;
   created_at: string;
+  aanwezigheid_types?: AanwezigheidType | null;
 }
 
 export interface AanwezigheidDatum {
@@ -104,6 +115,7 @@ export interface AanwezigheidResponse {
   speler_id: string;
   status: 'aanwezig' | 'afwezig';
   reden: string | null;
+  is_late: boolean;
   created_at: string;
   spelers?: Speler;
 }
@@ -120,6 +132,7 @@ export interface ActiviteitSpeler {
   created_at: string;
   spelers?: Speler;
   boete_items?: BoeteItem[];
+  aanwezigheid_datum_id?: string | null;
 }
 
 export interface BoeteItem {
