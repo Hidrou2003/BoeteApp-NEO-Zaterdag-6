@@ -33,7 +33,7 @@ export default function LoginPage() {
       if (user) {
         const { data: prof } = await supabase.from('profiles').select('rol').eq('id', user.id).maybeSingle();
         if (prof?.rol === 'kijker') {
-          router.push('/weekoverzicht');
+          router.push('/aanwezigheid');
         } else {
           router.push('/');
         }

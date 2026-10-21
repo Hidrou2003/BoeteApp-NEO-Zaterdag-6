@@ -116,6 +116,7 @@ function AanwezigheidContent() {
       result = result.filter(d =>
         (d.naam ?? '').toLowerCase().includes(q) ||
         d.evenement_naam.toLowerCase().includes(q) ||
+        d.datum.toLowerCase().includes(q) ||
         format(parseISO(d.datum), 'dd MMMM yyyy', { locale: nl }).toLowerCase().includes(q)
       );
     }
@@ -206,20 +207,6 @@ function AanwezigheidContent() {
         </div>
       )}
 
-      {/* Search */}
-      {allDatums.length > 0 && (
-        <div className="relative">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Zoek activiteit..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-          />
-        </div>
-      )}
-
       {allDatums.length === 0 && !showCreateModal ? (
         <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-5 py-14 text-center text-gray-400">
           <CalendarCheck className="mx-auto mb-3 h-12 w-12 opacity-30" />
@@ -233,8 +220,21 @@ function AanwezigheidContent() {
       ) : (
         <>
           {/* Planned dates list */}
-          <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-            <p className="mb-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Geplande datums ({filteredDatums.length})</p>
+          <div className="rounded-2xl border border-gray-100 bg-white p-3 shadow-sm">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider">Geplande datums ({filteredDatums.length})</p>
+              <div className="relative w-40 shrink-0">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Zoeken..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  aria-label="Zoek op activiteit of datum"
+                  className="w-full rounded-lg border border-gray-200 bg-gray-50 py-1.5 pl-8 pr-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
             <div className="flex gap-2 overflow-x-auto pb-1">
               {filteredDatums.map(d => {
                 const count = allResponses.filter(r => r.datum_id === d.id).length;
@@ -498,10 +498,8 @@ function DatumDetail({
 
       {error && <p className="mb-3 text-xs text-red-600">{error}</p>}
 
-      <AllResponses responses={responses} spelers={spelers} />
-
       {mySpeler ? (
-        <div className="mt-4 border-t border-gray-100 pt-4">
+        <div className="mb-4 border-b border-gray-100 pb-4">
           <ResponseForm
             response={myResponse}
             status={status}
@@ -514,10 +512,12 @@ function DatumDetail({
           />
         </div>
       ) : (
-        <div className="mt-4 border-t border-gray-100 pt-4">
+        <div className="mb-4 border-b border-gray-100 pb-4">
           <p className="text-sm text-gray-500">Je account is nog niet gekoppeld aan een speler.</p>
         </div>
       )}
+
+      <AllResponses responses={responses} spelers={spelers} />
     </div>
   );
 }
