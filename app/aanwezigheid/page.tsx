@@ -5,7 +5,7 @@ import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
 import { supabase, AanwezigheidDatum, AanwezigheidEvenement, AanwezigheidResponse, AanwezigheidType, Speler } from '@/lib/supabase';
-import { CalendarCheck, ChevronLeft, ChevronRight, Plus, Trash2, Users, X, Clock, AlertTriangle, Check, Settings, Search } from 'lucide-react';
+import { CalendarCheck, ChevronDown, ChevronLeft, ChevronRight, Plus, Trash2, Users, X, Clock, AlertTriangle, Check, Settings, Search } from 'lucide-react';
 import { addMonths, eachDayOfInterval, endOfMonth, format, parseISO, startOfMonth, subMonths, subDays, isToday } from 'date-fns';
 import { nl } from 'date-fns/locale';
 
@@ -111,20 +111,28 @@ function AanwezigheidContent() {
     let result = selectedEventIds.size === 0
       ? []
       : allDatums.filter(d => selectedEventIds.has(d.evenement_id));
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      result = result.filter(d =>
-        (d.naam ?? '').toLowerCase().includes(q) ||
-        d.evenement_naam.toLowerCase().includes(q) ||
-        d.datum.toLowerCase().includes(q) ||
-        format(parseISO(d.datum), 'dd MMMM yyyy', { locale: nl }).toLowerCase().includes(q)
-      );
+    const query = normalizeSearchText(search);
+    if (query) {
+      result = result.filter(d => {
+        const searchableText = normalizeSearchText(JSON.stringify({
+          datum: d,
+          evenement: d.evenement,
+          datumWeergave: format(parseISO(d.datum), 'EEEE d MMMM yyyy', { locale: nl }),
+          deadlineWeergave: d.deadline ? format(parseISO(d.deadline), 'd MMMM yyyy HH:mm', { locale: nl }) : '',
+          tijdWeergave: d.tijd ?? '',
+        }));
+        return searchableText.includes(query);
+      });
     }
     return [...result].sort((a, b) => a.datum.localeCompare(b.datum));
   }, [allDatums, selectedEventIds, search]);
 
   const selectedDatum = filteredDatums.find(d => d.id === selectedDatumId) ?? filteredDatums[0] ?? null;
   const selectedEvent = selectedDatum?.evenement ?? null;
+
+  function normalizeSearchText(value: string): string {
+    return value.toLocaleLowerCase('nl-NL').replace(/\s+/g, '');
+  }
 
   async function handleDeleteDatum(datumId: string) {
     const { error } = await supabase.from('aanwezigheid_datums').delete().eq('id', datumId);
@@ -213,10 +221,6 @@ function AanwezigheidContent() {
           <p className="font-medium">Nog geen aanwezigheid aangemaakt</p>
           {isHoofdbeheerder && <p className="mt-1 text-sm">Maak een aanwezigheid aan om datums te plannen.</p>}
         </div>
-      ) : filteredDatums.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-gray-200 bg-white px-5 py-10 text-center text-gray-400">
-          <p className="text-sm">Geen activiteiten gevonden met de huidige filters.</p>
-        </div>
       ) : (
         <>
           {/* Planned dates list */}
@@ -235,8 +239,11 @@ function AanwezigheidContent() {
                 />
               </div>
             </div>
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {filteredDatums.map(d => {
+            {filteredDatums.length === 0 ? (
+              <p className="py-4 text-center text-sm text-gray-400">Geen activiteiten gevonden met de huidige filters.</p>
+            ) : (
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {filteredDatums.map(d => {
                 const count = allResponses.filter(r => r.datum_id === d.id).length;
                 const dl = d.deadline;
                 const passed = dl ? new Date(dl).getTime() < Date.now() : false;
@@ -261,30 +268,35 @@ function AanwezigheidContent() {
                     {isTodayDate && <span className={`text-[10px] font-bold ${isSelected ? 'text-white' : 'text-blue-600'}`}>Vandaag</span>}
                   </button>
                 );
-              })}
-            </div>
+                })}
+              </div>
+            )}
           </div>
 
-          {/* Calendar */}
-          <CalendarView
-            datums={filteredDatums}
-            selectedDatumId={selectedDatum?.id ?? null}
-            onSelectDatum={(id) => setSelectedDatumId(id)}
-          />
+          {filteredDatums.length > 0 && (
+            <>
+              {/* Calendar */}
+              <CalendarView
+                datums={filteredDatums}
+                selectedDatumId={selectedDatum?.id ?? null}
+                onSelectDatum={(id) => setSelectedDatumId(id)}
+              />
 
-          {/* Selected date detail */}
-          {selectedDatum && selectedEvent && (
-            <DatumDetail
-              datum={selectedDatum}
-              event={selectedEvent}
-              responses={allResponses.filter(r => r.datum_id === selectedDatum.id)}
-              spelers={spelers}
-              isHoofdbeheerder={isHoofdbeheerder}
-              onReload={loadAll}
-              onDeleteDatum={handleDeleteDatum}
-              confirmDeleteDatum={confirmDeleteDatum}
-              setConfirmDeleteDatum={setConfirmDeleteDatum}
-            />
+              {/* Selected date detail */}
+              {selectedDatum && selectedEvent && (
+                <DatumDetail
+                  datum={selectedDatum}
+                  event={selectedEvent}
+                  responses={allResponses.filter(r => r.datum_id === selectedDatum.id)}
+                  spelers={spelers}
+                  isHoofdbeheerder={isHoofdbeheerder}
+                  onReload={loadAll}
+                  onDeleteDatum={handleDeleteDatum}
+                  confirmDeleteDatum={confirmDeleteDatum}
+                  setConfirmDeleteDatum={setConfirmDeleteDatum}
+                />
+              )}
+            </>
           )}
         </>
       )}
@@ -298,22 +310,26 @@ function CalendarView({ datums, selectedDatumId, onSelectDatum }: {
   onSelectDatum: (id: string) => void;
 }) {
   const [month, setMonth] = useState(new Date());
+  const [isOpen, setIsOpen] = useState(false);
   const days = useMemo(() => eachDayOfInterval({ start: startOfMonth(month), end: endOfMonth(month) }), [month]);
   const leadingEmpty = (startOfMonth(month).getDay() + 6) % 7;
 
   return (
     <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <p className="text-sm font-semibold text-gray-900">Agenda</p>
-          <p className="text-xs text-gray-400">Blauwe dagen hebben activiteiten. Klik om te bekijken.</p>
-        </div>
-        <div className="flex gap-1">
-          <button onClick={() => setMonth(subMonths(month, 1))} className="rounded-lg p-2 hover:bg-gray-100"><ChevronLeft className="h-4 w-4" /></button>
-          <button onClick={() => setMonth(addMonths(month, 1))} className="rounded-lg p-2 hover:bg-gray-100"><ChevronRight className="h-4 w-4" /></button>
-        </div>
-      </div>
-      <div className="mb-2 text-center text-sm font-semibold capitalize text-gray-800">{format(month, 'MMMM yyyy', { locale: nl })}</div>
+      <button onClick={() => setIsOpen(value => !value)} className="flex w-full items-center justify-between text-left">
+        <span className="text-sm font-semibold text-gray-900">Agenda</span>
+        <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+      {isOpen && (
+        <div className="mt-4">
+          <div className="mb-4 flex items-center justify-between">
+            <p className="text-xs text-gray-400">Blauwe dagen hebben activiteiten. Klik om te bekijken.</p>
+            <div className="flex gap-1">
+              <button onClick={() => setMonth(subMonths(month, 1))} className="rounded-lg p-2 hover:bg-gray-100"><ChevronLeft className="h-4 w-4" /></button>
+              <button onClick={() => setMonth(addMonths(month, 1))} className="rounded-lg p-2 hover:bg-gray-100"><ChevronRight className="h-4 w-4" /></button>
+            </div>
+          </div>
+          <div className="mb-2 text-center text-sm font-semibold capitalize text-gray-800">{format(month, 'MMMM yyyy', { locale: nl })}</div>
       <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-gray-400">
         {['ma', 'di', 'wo', 'do', 'vr', 'za', 'zo'].map(d => <span key={d} className="py-1">{d}</span>)}
         {Array.from({ length: leadingEmpty }).map((_, i) => <span key={`e${i}`} />)}
@@ -340,7 +356,9 @@ function CalendarView({ datums, selectedDatumId, onSelectDatum }: {
             </button>
           );
         })}
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
