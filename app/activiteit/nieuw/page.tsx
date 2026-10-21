@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import AuthGuard from '@/components/AuthGuard';
 import AppShell from '@/components/AppShell';
 import { useAuth } from '@/lib/auth-context';
-import { supabase } from '@/lib/supabase';
+import { supabase, AanwezigheidEvenement } from '@/lib/supabase';
 import { ArrowLeft, Zap, Calendar } from 'lucide-react';
 import { format } from 'date-fns';
 import Link from 'next/link';
@@ -27,10 +27,19 @@ function NieuweActiviteitContent() {
   const [datum, setDatum] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [isDubbel, setIsDubbel] = useState(false);
   const [isDubbeleMaand, setIsDubbeleMaand] = useState(false);
+  const [aanwezigheidEvenementId, setAanwezigheidEvenementId] = useState('');
+  const [aanwezigheidEvenementen, setAanwezigheidEvenementen] = useState<AanwezigheidEvenement[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   const isBeheerder = profile?.rol === 'beheerder' || profile?.rol === 'hoofdbeheerder';
+
+  useEffect(() => {
+    if (!isBeheerder) return;
+    supabase.from('aanwezigheid_evenementen').select('*').order('deadline', { ascending: false }).then(({ data }) => {
+      setAanwezigheidEvenementen((data ?? []) as AanwezigheidEvenement[]);
+    });
+  }, [isBeheerder]);
 
   if (!isBeheerder) {
     return (
@@ -54,6 +63,7 @@ function NieuweActiviteitContent() {
         datum,
         is_dubbel: isDubbel,
         is_dubbele_maand: isDubbeleMaand,
+        aanwezigheid_evenement_id: aanwezigheidEvenementId || null,
         gemaakt_door: profile!.id,
         gemaakt_op: new Date().toISOString(),
       })
@@ -104,6 +114,21 @@ function NieuweActiviteitContent() {
               required
               className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
             />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Koppelen aan aanwezigheid</label>
+            <select
+              value={aanwezigheidEvenementId}
+              onChange={e => setAanwezigheidEvenementId(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+            >
+              <option value="">Geen koppeling</option>
+              {aanwezigheidEvenementen.map(event => (
+                <option key={event.id} value={event.id}>{event.naam} — deadline {new Date(event.deadline).toLocaleString('nl-NL', { dateStyle: 'short', timeStyle: 'short' })}</option>
+              ))}
+            </select>
+            <p className="mt-1.5 text-xs text-gray-400">Koppel een eerder aangemaakte aanwezigheid aan deze activiteit.</p>
           </div>
 
           {/* Dubbele activiteit toggle */}

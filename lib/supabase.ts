@@ -78,6 +78,34 @@ export interface Activiteit {
   gemaakt_door_profile?: Profile | null;
   gewijzigd_door_profile?: Profile | null;
   laatste_speler_index?: number;
+  aanwezigheid_evenement_id?: string | null;
+}
+
+export interface AanwezigheidEvenement {
+  id: string;
+  naam: string;
+  deadline: string;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface AanwezigheidDatum {
+  id: string;
+  evenement_id: string;
+  datum: string;
+  naam: string | null;
+  created_at: string;
+}
+
+export interface AanwezigheidResponse {
+  id: string;
+  evenement_id: string;
+  datum_id: string;
+  speler_id: string;
+  status: 'aanwezig' | 'afwezig';
+  reden: string | null;
+  created_at: string;
+  spelers?: Speler;
 }
 
 export interface ActiviteitSpeler {

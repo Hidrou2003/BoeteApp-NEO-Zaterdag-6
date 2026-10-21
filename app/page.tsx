@@ -31,7 +31,7 @@ function HomeContent() {
 
   useEffect(() => {
     if (isKijker) {
-      router.replace('/weekoverzicht');
+      router.replace('/aanwezigheid');
       return;
     }
     loadActiviteiten();

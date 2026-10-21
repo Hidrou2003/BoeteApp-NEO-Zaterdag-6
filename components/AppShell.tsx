@@ -15,6 +15,7 @@ import {
   CreditCard,
   Car,
   Calendar,
+  CalendarCheck,
   Sparkles,
   ChevronRight,
   Users,
@@ -129,6 +130,7 @@ export default function AppShell({ children }: AppShellProps) {
 
             {/* Nav links */}
             <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+              <NavItem href="/aanwezigheid" icon={<CalendarCheck className="w-5 h-5" />} label="Aanwezigheid" active={pathname === '/aanwezigheid'} />
               {!isKijker && (
                 <NavItem href="/" icon={<Home className="w-5 h-5" />} label="Activiteiten" active={pathname === '/'} />
               )}
